@@ -1,9 +1,7 @@
 use std::{
-    any::Any,
     cell::{Cell, RefCell},
     future::Future,
     marker::PhantomData,
-    panic::{catch_unwind, resume_unwind, AssertUnwindSafe},
     pin::Pin,
     task::Poll,
 };
@@ -32,7 +30,7 @@ where
             active_fut: RefCell::new(None),
             phantom: PhantomData,
             state: State {
-                order: Cell::new(None),
+                order: Cell::new(std::ptr::null_mut()),
             },
         }
     }
@@ -54,64 +52,37 @@ where
         // FIXME: we only accept a Fn while we should accept a FnOnce
         G: Fn(&'borrow mut T) -> Output + 'borrow,
     {
-        let output: Cell<Result<Output, Option<Box<dyn Any + Send + 'static>>>> =
-            Cell::new(Err(None));
-        let output_ptr: *const Cell<Result<Output, Option<Box<dyn Any + Send + 'static>>>> =
-            &output;
-        let f_ptr: *const dyn Fn(&'borrow mut T) -> Output = &f;
-        // SAFETY: FIXME
-        let f_ptr: *const dyn Fn(&mut T) -> Output = unsafe { std::mem::transmute(f_ptr) };
-        let g = move |t: &mut T| {
-            // SAFETY: FIXME
-            unsafe {
-                let output = output_ptr.as_ref().unwrap();
-                let f = f_ptr.as_ref().unwrap();
-                match catch_unwind(AssertUnwindSafe(|| output.set(Ok(f(t))))) {
-                    Ok(()) => {}
-                    Err(err) => output.set(Err(Some(err))),
-                }
-            }
-        };
-        let g: *const dyn for<'a> Fn(&'a mut T) = &g;
-        // transmute so that we can shove a closure that has a local lifetime in the `state` object, that expects
-        // a `'static` closure because we are inserting it in the communication channel with the future and can't
-        // statically bound its lifetime.
-        //
-        // SAFETY: the state is dropped by the end of this function, constraining the lifetime to 'pin, the duration
-        // of the input borrow.
-        let g: *const _ = unsafe { std::mem::transmute(g) };
         let this = self.as_ref();
-        let order = Some(g);
-        this.state.order.set(order);
 
-        let mut f = this.active_fut.borrow_mut();
-        let f = f.as_mut().unwrap();
+        let mut fut = this.active_fut.borrow_mut();
+        let fut = fut.as_mut().unwrap();
         // SAFETY: self.active_fut is never moved by self after the first call to produce completes.
         //         self itself is pinned.
-        let f = unsafe { Pin::new_unchecked(f) };
-        match f.poll(&mut std::task::Context::from_waker(&waker::create())) {
+        let fut = unsafe { Pin::new_unchecked(fut) };
+        match fut.poll(&mut std::task::Context::from_waker(&waker::create())) {
             Poll::Ready(_) => unreachable!(),
             Poll::Pending => {}
         }
-
-        // important for safety.
-        this.state.order.set(None);
-
-        match output.into_inner() {
-            Ok(output) => output,
-            Err(Some(panic_payload)) => resume_unwind(panic_payload),
-            Err(None) => panic!("Function was not called by the future."),
+        let state = this.state.order.get();
+        let output;
+        {
+            // SAFETY: NULL or set by
+            // FIXME if f panics, set back to NULL
+            // PANICS: future did not fill the value
+            let state = unsafe { state.as_mut().unwrap() };
+            output = f(state);
         }
+        output
     }
 }
 
 pub struct NolifeFuture<'a, T> {
-    mut_ref: &'a mut T,
+    mut_ref: Cell<Option<&'a mut T>>,
     state: *const State<T>,
 }
 
 struct State<T> {
-    order: Cell<Option<*const dyn for<'a> Fn(&'a mut T)>>,
+    order: Cell<*mut T>,
 }
 
 pub struct TimeCapsule<T> {
@@ -119,9 +90,9 @@ pub struct TimeCapsule<T> {
 }
 
 impl<T> TimeCapsule<T> {
-    pub fn into_future<'a>(&'a mut self, t: &'a mut T) -> NolifeFuture<'a, T> {
+    pub fn freeze<'a>(&'a mut self, t: &'a mut T) -> NolifeFuture<'a, T> {
         NolifeFuture {
-            mut_ref: t,
+            mut_ref: Cell::new(Some(t)),
             state: self.state,
         }
     }
@@ -156,14 +127,16 @@ impl<'a, T> Future for NolifeFuture<'a, T> {
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
-        let order = unsafe { self.as_ref().state.as_ref().unwrap().order.take() };
-        if let Some(order) = order {
-            let f = unsafe { order.as_ref().unwrap() };
-            let mut_ref = &mut self.get_mut().mut_ref;
-            f(mut_ref);
-            Poll::Ready(())
-        } else {
+        // FIXME: Safety
+        let state = unsafe { self.state.as_ref().unwrap() };
+        if state.order.get().is_null() {
+            // FIXME: poll called several times on the same future
+            let mut_ref = self.mut_ref.take().unwrap();
+            state.order.set(mut_ref);
             Poll::Pending
+        } else {
+            state.order.set(std::ptr::null_mut());
+            Poll::Ready(())
         }
     }
 }
@@ -176,7 +149,7 @@ mod test {
         let mut nolife = Nolife::new(|mut time_capsule| async move {
             let mut x = 0u32;
             loop {
-                time_capsule.into_future(&mut x).await;
+                time_capsule.freeze(&mut x).await;
                 x += 1;
             }
         });
@@ -194,7 +167,7 @@ mod test {
         let mut nolife = Nolife::new(|mut time_capsule| async move {
             let mut x = 0u32;
             loop {
-                time_capsule.into_future(&mut x).await;
+                time_capsule.freeze(&mut x).await;
                 x += 1;
             }
         });
