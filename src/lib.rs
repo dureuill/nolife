@@ -8,25 +8,27 @@ use std::{
 
 pub enum Never {}
 
-pub struct Nolife<T, P, F>
+pub trait Family<'a> {
+    type Family: 'a;
+}
+
+pub struct Nolife<T, F>
 where
-    P: FnOnce(TimeCapsule<T>) -> F,
+    T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
-    producer: Cell<Option<P>>,
     active_fut: RefCell<Option<F>>,
     phantom: PhantomData<*const fn(TimeCapsule<T>) -> F>,
     state: State<T>,
 }
 
-impl<T, P, F> Nolife<T, P, F>
+impl<T, F> Nolife<T, F>
 where
-    P: FnOnce(TimeCapsule<T>) -> F,
+    T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
-    pub fn new(producer: P) -> Self {
+    pub fn new() -> Self {
         Self {
-            producer: Cell::new(Some(producer)),
             active_fut: RefCell::new(None),
             phantom: PhantomData,
             state: State {
@@ -35,22 +37,29 @@ where
         }
     }
 
-    pub fn produce(self: &mut Pin<&mut Self>) {
+    pub fn produce<P>(self: &mut Pin<&mut Self>, producer: P)
+    where
+        P: FnOnce(TimeCapsule<T>) -> F,
+    {
         let this = self.as_ref();
-        let producer = this.producer.take().unwrap();
+        let mut active_fut = this.active_fut.borrow_mut();
+        if active_fut.is_some() {
+            panic!("Multiple calls to produce")
+        }
         let state: *const State<T> = &this.state;
         let time_capsule = TimeCapsule { state };
         let fut = producer(time_capsule);
-        *this.active_fut.borrow_mut() = Some(fut);
+        *active_fut = Some(fut);
     }
 
-    pub fn call<'borrow, 'pin, Output: 'borrow, G>(
+    pub fn call<'borrow, 'pin, 'scope, Output: 'borrow, G>(
         self: &'borrow mut Pin<&'pin mut Self>,
         f: G,
     ) -> Output
     where
+        'scope: 'borrow,
         // FIXME: we only accept a Fn while we should accept a FnOnce
-        G: Fn(&'borrow mut T) -> Output + 'borrow,
+        G: Fn(&'borrow mut <T as Family<'scope>>::Family) -> Output + 'borrow,
     {
         let this = self.as_ref();
 
@@ -64,6 +73,8 @@ where
             Poll::Pending => {}
         }
         let state = this.state.order.get();
+        // SAFETY: papering over the lifetime requirements here!!!
+        let state: *mut <T as Family>::Family = state.cast();
         let output;
         {
             // SAFETY: NULL or set by
@@ -76,21 +87,40 @@ where
     }
 }
 
-pub struct NolifeFuture<'a, T> {
-    mut_ref: Cell<Option<&'a mut T>>,
+pub struct NolifeFuture<'a, 'b, T>
+where
+    T: for<'c> Family<'c>,
+    'b: 'a,
+{
+    mut_ref: Cell<Option<&'a mut <T as Family<'b>>::Family>>,
     state: *const State<T>,
 }
 
-struct State<T> {
-    order: Cell<*mut T>,
+struct State<T>
+where
+    T: for<'a> Family<'a>,
+{
+    order: Cell<*mut <T as Family<'static>>::Family>,
 }
 
-pub struct TimeCapsule<T> {
+pub struct TimeCapsule<T>
+where
+    T: for<'a> Family<'a>,
+{
     state: *const State<T>,
 }
 
-impl<T> TimeCapsule<T> {
-    pub fn freeze<'a>(&'a mut self, t: &'a mut T) -> NolifeFuture<'a, T> {
+impl<T> TimeCapsule<T>
+where
+    T: for<'a> Family<'a>,
+{
+    pub fn freeze<'a, 'b>(
+        &'a mut self,
+        t: &'a mut <T as Family<'b>>::Family,
+    ) -> NolifeFuture<'a, 'b, T>
+    where
+        'b: 'a,
+    {
         NolifeFuture {
             mut_ref: Cell::new(Some(t)),
             state: self.state,
@@ -120,7 +150,10 @@ mod waker {
     unsafe fn drop(_: *const ()) {}
 }
 
-impl<'a, T> Future for NolifeFuture<'a, T> {
+impl<'a, 'b, T> Future for NolifeFuture<'a, 'b, T>
+where
+    T: for<'c> Family<'c>,
+{
     type Output = ();
 
     fn poll(
@@ -132,6 +165,10 @@ impl<'a, T> Future for NolifeFuture<'a, T> {
         if state.order.get().is_null() {
             // FIXME: poll called several times on the same future
             let mut_ref = self.mut_ref.take().unwrap();
+            let mut_ref: *mut <T as Family>::Family = mut_ref;
+            // FIXME: SAFETY!!!
+            let mut_ref: *mut <T as Family<'static>>::Family = mut_ref.cast();
+
             state.order.set(mut_ref);
             Poll::Pending
         } else {
@@ -141,21 +178,28 @@ impl<'a, T> Future for NolifeFuture<'a, T> {
     }
 }
 
+pub struct SingleFamily<T: 'static>(PhantomData<T>);
+impl<'a, T: 'static> Family<'a> for SingleFamily<T> {
+    type Family = T;
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut nolife = Nolife::new(|mut time_capsule| async move {
-            let mut x = 0u32;
-            loop {
-                time_capsule.freeze(&mut x).await;
-                x += 1;
-            }
-        });
+        let mut nolife = Nolife::new();
 
         let mut nolife = unsafe { Pin::new_unchecked(&mut nolife) };
-        nolife.produce();
+        nolife.produce(
+            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+                let mut x = 0u32;
+                loop {
+                    time_capsule.freeze(&mut x).await;
+                    x += 1;
+                }
+            },
+        );
         println!("{}", nolife.call(|x| *x + 42));
         println!("{}", nolife.call(|x| *x + 42));
         nolife.call(|x| *x += 100);
@@ -164,16 +208,18 @@ mod test {
 
     #[test]
     fn hold_reference() {
-        let mut nolife = Nolife::new(|mut time_capsule| async move {
-            let mut x = 0u32;
-            loop {
-                time_capsule.freeze(&mut x).await;
-                x += 1;
-            }
-        });
+        let mut nolife = Nolife::new();
 
         let mut nolife = unsafe { Pin::new_unchecked(&mut nolife) };
-        nolife.produce();
+        nolife.produce(
+            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+                let mut x = 0u32;
+                loop {
+                    time_capsule.freeze(&mut x).await;
+                    x += 1;
+                }
+            },
+        );
 
         let x = nolife.call(|x| x);
         *x = 0;
@@ -181,4 +227,15 @@ mod test {
         nolife.call(|x| *x += 1);
         nolife.call(|x| println!("{x}"))
     }
+
+    struct Contravariant<'a> {
+        f: Box<dyn Fn(&'a u32) -> u32>,
+    }
+
+    impl<'a> Family<'a> for Contravariant<'a> {
+        type Family = Self;
+    }
+
+    #[test]
+    fn contravariant() {}
 }
