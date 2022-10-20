@@ -31,9 +31,7 @@ where
         Self {
             active_fut: RefCell::new(None),
             phantom: PhantomData,
-            state: State {
-                order: Cell::new(std::ptr::null_mut()),
-            },
+            state: Default::default(),
         }
     }
 
@@ -72,7 +70,7 @@ where
             Poll::Ready(_) => unreachable!(),
             Poll::Pending => {}
         }
-        let state = this.state.order.get();
+        let state = this.state.0.get();
         // SAFETY: papering over the lifetime requirements here!!!
         let state: *mut <T as Family>::Family = state.cast();
         let output;
@@ -96,11 +94,17 @@ where
     state: *const State<T>,
 }
 
-struct State<T>
+struct State<T>(Cell<*mut <T as Family<'static>>::Family>)
+where
+    T: for<'a> Family<'a>;
+
+impl<T> Default for State<T>
 where
     T: for<'a> Family<'a>,
 {
-    order: Cell<*mut <T as Family<'static>>::Family>,
+    fn default() -> Self {
+        Self(Cell::new(std::ptr::null_mut()))
+    }
 }
 
 pub struct TimeCapsule<T>
@@ -162,17 +166,17 @@ where
     ) -> Poll<Self::Output> {
         // FIXME: Safety
         let state = unsafe { self.state.as_ref().unwrap() };
-        if state.order.get().is_null() {
+        if state.0.get().is_null() {
             // FIXME: poll called several times on the same future
             let mut_ref = self.mut_ref.take().unwrap();
             let mut_ref: *mut <T as Family>::Family = mut_ref;
             // FIXME: SAFETY!!!
             let mut_ref: *mut <T as Family<'static>>::Family = mut_ref.cast();
 
-            state.order.set(mut_ref);
+            state.0.set(mut_ref);
             Poll::Pending
         } else {
-            state.order.set(std::ptr::null_mut());
+            state.0.set(std::ptr::null_mut());
             Poll::Ready(())
         }
     }
