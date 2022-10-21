@@ -12,7 +12,7 @@ pub trait Family<'a> {
     type Family: 'a;
 }
 
-pub struct Nolife<T, F>
+pub struct Scope<T, F>
 where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
@@ -22,7 +22,7 @@ where
     state: State<T>,
 }
 
-impl<T, F> Nolife<T, F>
+impl<T, F> Scope<T, F>
 where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
@@ -35,7 +35,7 @@ where
         }
     }
 
-    pub fn produce<P>(self: &mut Pin<&mut Self>, producer: P)
+    pub fn open<P>(self: &mut Pin<&mut Self>, producer: P)
     where
         P: FnOnce(TimeCapsule<T>) -> F,
     {
@@ -50,7 +50,7 @@ where
         *active_fut = Some(fut);
     }
 
-    pub fn call<'borrow, 'pin, 'scope, Output: 'borrow, G>(
+    pub fn enter<'borrow, 'pin, 'scope, Output: 'borrow, G>(
         self: &'borrow mut Pin<&'pin mut Self>,
         f: G,
     ) -> Output
@@ -192,10 +192,10 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut nolife = Nolife::new();
+        let mut nolife = Scope::new();
 
         let mut nolife = unsafe { Pin::new_unchecked(&mut nolife) };
-        nolife.produce(
+        nolife.open(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 loop {
@@ -204,18 +204,18 @@ mod test {
                 }
             },
         );
-        println!("{}", nolife.call(|x| *x + 42));
-        println!("{}", nolife.call(|x| *x + 42));
-        nolife.call(|x| *x += 100);
-        println!("{}", nolife.call(|x| *x + 42));
+        println!("{}", nolife.enter(|x| *x + 42));
+        println!("{}", nolife.enter(|x| *x + 42));
+        nolife.enter(|x| *x += 100);
+        println!("{}", nolife.enter(|x| *x + 42));
     }
 
     #[test]
     fn hold_reference() {
-        let mut nolife = Nolife::new();
+        let mut nolife = Scope::new();
 
         let mut nolife = unsafe { Pin::new_unchecked(&mut nolife) };
-        nolife.produce(
+        nolife.open(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 loop {
@@ -225,11 +225,11 @@ mod test {
             },
         );
 
-        let x = nolife.call(|x| x);
+        let x = nolife.enter(|x| x);
         *x = 0;
 
-        nolife.call(|x| *x += 1);
-        nolife.call(|x| println!("{x}"))
+        nolife.enter(|x| *x += 1);
+        nolife.enter(|x| println!("{x}"))
     }
 
     struct Contravariant<'a> {
