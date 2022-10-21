@@ -56,8 +56,7 @@ where
     ) -> Output
     where
         'scope: 'borrow,
-        // FIXME: we only accept a Fn while we should accept a FnOnce
-        G: Fn(&'borrow mut <T as Family<'scope>>::Family) -> Output + 'borrow,
+        G: FnOnce(&'borrow mut <T as Family<'scope>>::Family) -> Output + 'borrow,
     {
         let this = self.as_ref();
 
