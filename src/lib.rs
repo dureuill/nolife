@@ -1,3 +1,12 @@
+mod box_scope;
+mod stack_scope;
+/// From <https://blog.aloni.org/posts/a-stack-less-rust-coroutine-100-loc/>, originally from
+/// [genawaiter](https://lib.rs/crates/genawaiter).
+mod waker;
+
+pub use box_scope::BoxScope;
+pub use stack_scope::StackScope;
+
 use std::{
     cell::{Cell, RefCell},
     future::Future,
@@ -35,14 +44,15 @@ where
         }
     }
 
-    pub fn open<P>(self: &mut Pin<&mut Self>, producer: P)
+    #[allow(unused_unsafe)]
+    unsafe fn open<P>(this: std::ptr::NonNull<Self>, producer: P)
     where
         P: FnOnce(TimeCapsule<T>) -> F,
     {
-        let this = self.as_ref();
+        let this = unsafe { this.as_ref() };
         let mut active_fut = this.active_fut.borrow_mut();
         if active_fut.is_some() {
-            panic!("Multiple calls to produce")
+            panic!("Multiple calls to open")
         }
         let state: *const State<T> = &this.state;
         let time_capsule = TimeCapsule { state };
@@ -50,15 +60,17 @@ where
         *active_fut = Some(fut);
     }
 
-    pub fn enter<'borrow, 'pin, 'scope, Output: 'borrow, G>(
-        self: &'borrow mut Pin<&'pin mut Self>,
+    #[allow(unused_unsafe)]
+    unsafe fn enter<'borrow, 'pin, 'scope, Output: 'borrow, G>(
+        this: std::ptr::NonNull<Self>,
         f: G,
     ) -> Output
     where
         'scope: 'borrow,
         G: FnOnce(&'borrow mut <T as Family<'scope>>::Family) -> Output + 'borrow,
     {
-        let this = self.as_ref();
+        // SAFETY: FIXME
+        let this = unsafe { this.as_ref() };
 
         let mut fut = this.active_fut.borrow_mut();
         let fut = fut.as_mut().unwrap();
@@ -131,10 +143,6 @@ where
     }
 }
 
-/// From <https://blog.aloni.org/posts/a-stack-less-rust-coroutine-100-loc/>, originally from
-/// [genawaiter](https://lib.rs/crates/genawaiter).
-mod waker;
-
 impl<'a, 'b, T> Future for NolifeFuture<'a, 'b, T>
 where
     T: for<'c> Family<'c>,
@@ -173,10 +181,10 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut nolife = Scope::new();
+        let mut scope = Scope::new();
+        let mut scope = unsafe { StackScope::new_unchecked(&mut scope) };
 
-        let mut nolife = unsafe { Pin::new_unchecked(&mut nolife) };
-        nolife.open(
+        scope.open(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 loop {
@@ -185,18 +193,18 @@ mod test {
                 }
             },
         );
-        println!("{}", nolife.enter(|x| *x + 42));
-        println!("{}", nolife.enter(|x| *x + 42));
-        nolife.enter(|x| *x += 100);
-        println!("{}", nolife.enter(|x| *x + 42));
+        println!("{}", scope.enter(|x| *x + 42));
+        println!("{}", scope.enter(|x| *x + 42));
+        scope.enter(|x| *x += 100);
+        println!("{}", scope.enter(|x| *x + 42));
     }
 
     #[test]
     fn hold_reference() {
-        let mut nolife = Scope::new();
+        let mut scope = Scope::new();
 
-        let mut nolife = unsafe { Pin::new_unchecked(&mut nolife) };
-        nolife.open(
+        let mut scope = unsafe { StackScope::new_unchecked(&mut scope) };
+        scope.open(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 loop {
@@ -206,11 +214,11 @@ mod test {
             },
         );
 
-        let x = nolife.enter(|x| x);
+        let x = scope.enter(|x| x);
         *x = 0;
 
-        nolife.enter(|x| *x += 1);
-        nolife.enter(|x| println!("{x}"))
+        scope.enter(|x| *x += 1);
+        scope.enter(|x| println!("{x}"))
     }
 
     struct Contravariant<'a> {
