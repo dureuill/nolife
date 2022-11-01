@@ -24,7 +24,7 @@ After you identified the data and its borrowed representation that you'd like to
 1. Define a helper type that will express where the lifetimes of the borrowed representation live.
    Given the following types:
 
-    ```
+    ```rust
     struct MyData(Vec<u8>);
     struct MyParsedData<'a>(&'a mut MyData, /* ... */);
     ```
@@ -43,7 +43,7 @@ After you identified the data and its borrowed representation that you'd like to
 
     2. Define an async function that setups the data and its borrowed representation:
 
-     ```
+     ```rust
      # struct MyData(Vec<u8>);
      # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
      # struct MyParsedDataFamily; // empty type, no lifetime.
@@ -66,7 +66,7 @@ After you identified the data and its borrowed representation that you'd like to
      3. Open a scope, either on the [stack](`StackScope`) or in a [box](`BoxScope`),
      using the previously written async function:
 
-     ```
+     ```rust
      # struct MyData(Vec<u8>);
      # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
      # struct MyParsedDataFamily; // empty type, no lifetime.
@@ -90,7 +90,7 @@ After you identified the data and its borrowed representation that you'd like to
      ```
 
      4. Lastly, enter the scope to retrieve access to the referenced value.
-     ```
+     ```rust
      # struct MyData(Vec<u8>);
      # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
      # struct MyParsedDataFamily; // empty type, no lifetime.
