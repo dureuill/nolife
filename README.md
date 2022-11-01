@@ -130,9 +130,9 @@ At the moment, although the functions passed to [`BoxScope::open`] are asynchron
 
 Future versions of this crate could provide async version of [`BoxScope::enter`] to handle the asynchronous use case.
 
-# License
+# License
 
-Licensed under either of [Apache License][./LICENSE-APACHE], Version 2.0 or [MIT license][./LICENSE-MIT] at your option.
+Licensed under either of [Apache License](./LICENSE-APACHE), Version 2.0 or [MIT license](./LICENSE-MIT) at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
