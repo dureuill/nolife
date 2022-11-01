@@ -2,7 +2,12 @@
 name = "nolife"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT OR Apache-2.0"
+description = "Crate to open a scope and then freeze it in time for future access."
+repository = "https://github.com/dureuill/nolife"
+documentation = "https://docs.rs/nolife"
+readme = "README.md"
+keywords = ["ownership", "self-referential", "lifetime", "borrowing"]
+categories = ["rust-patterns"]
 
 [dependencies]
