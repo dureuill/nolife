@@ -18,7 +18,7 @@ where
     F: Future<Output = Never>,
 {
     fn drop(&mut self) {
-        // FIXME: SAFETY
+        // SAFETY: created from a Box in the constructor, so dereference-able.
         let this = unsafe { self.0.as_ref() };
         // SAFETY: we MUST release the `RefMut` before calling drop on the `Box` otherwise we'll call its
         // destructor after releasing its backing memory, causing uaf
@@ -52,7 +52,7 @@ where
     where
         P: FnOnce(TimeCapsule<T>) -> F,
     {
-        // SAFETY: FIXME
+        // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
         unsafe { Scope::open(self.0, producer) }
     }
 
@@ -68,7 +68,7 @@ where
     where
         G: FnOnce(&'borrow mut <T as Family<'borrow>>::Family) -> Output + 'static,
     {
-        // SAFETY: FIXME
+        // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
         unsafe { Scope::enter(self.0, f) }
     }
 }

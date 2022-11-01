@@ -71,11 +71,15 @@ where
         }
     }
 
+    /// # Safety
+    ///
+    /// The `this` parameter is *dereference-able*.
     #[allow(unused_unsafe)]
     unsafe fn open<P>(this: std::ptr::NonNull<Self>, producer: P)
     where
         P: FnOnce(TimeCapsule<T>) -> F,
     {
+        // SAFETY: `this` is dereference-able as per precondition.
         let this = unsafe { this.as_ref() };
         let mut active_fut = this.active_fut.borrow_mut();
         if active_fut.is_some() {
@@ -87,16 +91,15 @@ where
         *active_fut = Some(ManuallyDrop::new(fut));
     }
 
+    /// # Safety
+    ///
+    /// The `this` parameter is *dereference-able*.
     #[allow(unused_unsafe)]
-    unsafe fn enter<'borrow, 'scope, Output: 'borrow, G>(
-        this: std::ptr::NonNull<Self>,
-        f: G,
-    ) -> Output
+    unsafe fn enter<'borrow, Output: 'borrow, G>(this: std::ptr::NonNull<Self>, f: G) -> Output
     where
-        'scope: 'borrow,
-        G: FnOnce(&'borrow mut <T as Family<'scope>>::Family) -> Output + 'borrow,
+        G: FnOnce(&'borrow mut <T as Family<'borrow>>::Family) -> Output + 'borrow,
     {
-        // SAFETY: FIXME
+        // SAFETY: `this` is dereference-able as per precondition.
         let this = unsafe { this.as_ref() };
 
         let mut fut = this.active_fut.borrow_mut();
@@ -104,19 +107,27 @@ where
         // SAFETY: self.active_fut is never moved by self after the first call to produce completes.
         //         self itself is pinned.
         let fut = unsafe { Pin::new_unchecked(fut) };
+        // SAFETY: we didn't do anything particular here before calling `poll`, which may panic, so
+        // we have nothing to handle.
         match fut.poll(&mut std::task::Context::from_waker(&waker::create())) {
             Poll::Ready(_) => unreachable!(),
             Poll::Pending => {}
         }
         let state = this.state.0.get();
-        // SAFETY: papering over the lifetime requirements here!!!
+        // SAFETY: cast the lifetime of the Family to `'borrow`.
+        // This is safe to do
         let state: *mut <T as Family>::Family = state.cast();
         let output;
         {
-            // SAFETY: NULL or set by
-            // FIXME if f panics, set back to NULL
-            // PANICS: future did not fill the value
-            let state = unsafe { state.as_mut().unwrap() };
+            // SAFETY: The `state` variable has been set to a dereference-able value by the future,
+            // or kept its NULL value.
+            let state = unsafe {
+                state
+                    .as_mut()
+                    .expect("The scope's future did not fill the value")
+            };
+            // SAFETY: we're already in a clean state here even if `f` panics.
+            // (not doing anything afterwards beside returning `output`)
             output = f(state);
         }
         output
@@ -185,13 +196,15 @@ where
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
-        // FIXME: Safety
+        // SAFETY: `state` has been set in the future by the scope
         let state = unsafe { self.state.as_ref().unwrap() };
         if state.0.get().is_null() {
-            // FIXME: poll called several times on the same future
-            let mut_ref = self.mut_ref.take().unwrap();
+            let mut_ref = self
+                .mut_ref
+                .take()
+                .expect("poll called several times on the same future");
             let mut_ref: *mut <T as Family>::Family = mut_ref;
-            // FIXME: SAFETY!!!
+            // SAFETY: Will be given back a reasonable lifetime in the `enter` method.
             let mut_ref: *mut <T as Family<'static>>::Family = mut_ref.cast();
 
             state.0.set(mut_ref);
@@ -243,12 +256,81 @@ mod test {
                 time_capsule.freeze(&mut x).await;
                 x += 1;
             }
-        } }
+        } };
 
         let x = scope.enter(|x| x);
         *x = 0;
 
         scope.enter(|x| *x += 1);
         scope.enter(|x| assert_eq!(*x, 3))
+    }
+
+    #[test]
+    fn panicking_future() {
+        open_stack_scope! { scope = |_: TimeCapsule<SingleFamily<u32>>| async move {
+            panic!()
+        } };
+
+        assert!(matches!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                scope.enter(|x| println!("{x}"))
+            })),
+            Err(_)
+        ));
+
+        assert!(matches!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                scope.enter(|x| println!("{x}"))
+            })),
+            Err(_)
+        ));
+    }
+
+    #[test]
+    fn panicking_future_after_once() {
+        open_stack_scope! { scope = |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+            let mut x = 0u32;
+            time_capsule.freeze(&mut x).await;
+            panic!()
+        } };
+
+        scope.enter(|x| println!("{x}"));
+
+        assert!(matches!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                scope.enter(|x| println!("{x}"))
+            })),
+            Err(_)
+        ));
+
+        assert!(matches!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                scope.enter(|x| println!("{x}"))
+            })),
+            Err(_)
+        ))
+    }
+
+    #[test]
+    fn panicking_enter() {
+        open_stack_scope! { scope = |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+            let mut x = 0u32;
+            loop {
+                time_capsule.freeze(&mut x).await;
+                x += 1;
+            }
+        } };
+
+        scope.enter(|x| assert_eq!(*x, 0));
+
+        assert!(matches!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                scope.enter(|_| panic!())
+            })),
+            Err(_)
+        ));
+
+        // '1' skipped due to panic
+        scope.enter(|x| assert_eq!(*x, 2));
     }
 }

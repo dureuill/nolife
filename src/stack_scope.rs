@@ -41,7 +41,7 @@ where
     where
         P: FnOnce(TimeCapsule<T>) -> F,
     {
-        // SAFETY: FIXME
+        // SAFETY: `self.0` is dereference-able if the `new_unchecked` preconditions are met.
         unsafe { Scope::open(self.0, producer) }
     }
 
@@ -57,7 +57,7 @@ where
     where
         G: FnOnce(&'borrow mut <T as Family<'borrow>>::Family) -> Output + 'a,
     {
-        // SAFETY: FIXME
+        // SAFETY: `self.0` is dereference-able if the `new_unchecked` preconditions are met.
         unsafe { Scope::enter(self.0, f) }
     }
 }
@@ -128,7 +128,7 @@ where
     F: Future<Output = Never>,
 {
     fn drop(&mut self) {
-        // FIXME: SAFETY
+        // SAFETY: `self.0` is dereference-able if the `new_unchecked` preconditions are met.
         let this = unsafe { self.0.as_ref() };
         let mut fut = this.active_fut.borrow_mut();
         let fut = fut.as_mut().unwrap();
