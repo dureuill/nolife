@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{future::Future, mem::ManuallyDrop};
 
 use crate::{Family, Never, Scope, TimeCapsule};
 
@@ -15,6 +15,14 @@ where
 {
     fn drop(&mut self) {
         // FIXME: SAFETY
+        let this = unsafe { self.0.as_ref() };
+        // SAFETY: we MUST release the `RefMut` before calling drop on the `Box` otherwise we'll call its
+        // destructor after releasing its backing memory, causing uaf
+        {
+            let mut fut = this.active_fut.borrow_mut();
+            let fut = fut.as_mut().unwrap();
+            unsafe { ManuallyDrop::drop(fut) };
+        }
         unsafe { drop(Box::from_raw(self.0.as_ptr())) }
     }
 }
@@ -38,10 +46,9 @@ where
         unsafe { Scope::open(self.0, producer) }
     }
 
-    pub fn enter<'borrow, 'scope, Output: 'borrow, G>(&'borrow mut self, f: G) -> Output
+    pub fn enter<'borrow, Output: 'borrow, G>(&'borrow mut self, f: G) -> Output
     where
-        'scope: 'borrow,
-        G: FnOnce(&'borrow mut <T as Family<'scope>>::Family) -> Output + 'borrow,
+        G: FnOnce(&'borrow mut <T as Family<'borrow>>::Family) -> Output + 'static,
     {
         // SAFETY: FIXME
         unsafe { Scope::enter(self.0, f) }

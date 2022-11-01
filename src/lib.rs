@@ -12,6 +12,8 @@ use std::{
     cell::{Cell, RefCell},
     future::Future,
     marker::PhantomData,
+    mem::ManuallyDrop,
+    ops::DerefMut,
     pin::Pin,
     task::Poll,
 };
@@ -27,7 +29,7 @@ where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
-    active_fut: RefCell<Option<F>>,
+    active_fut: RefCell<Option<ManuallyDrop<F>>>,
     phantom: PhantomData<*const fn(TimeCapsule<T>) -> F>,
     state: State<T>,
 }
@@ -58,11 +60,11 @@ where
         let state: *const State<T> = &this.state;
         let time_capsule = TimeCapsule { state };
         let fut = producer(time_capsule);
-        *active_fut = Some(fut);
+        *active_fut = Some(ManuallyDrop::new(fut));
     }
 
     #[allow(unused_unsafe)]
-    unsafe fn enter<'borrow, 'pin, 'scope, Output: 'borrow, G>(
+    unsafe fn enter<'borrow, 'scope, Output: 'borrow, G>(
         this: std::ptr::NonNull<Self>,
         f: G,
     ) -> Output
@@ -74,7 +76,7 @@ where
         let this = unsafe { this.as_ref() };
 
         let mut fut = this.active_fut.borrow_mut();
-        let fut = fut.as_mut().unwrap();
+        let fut = fut.as_mut().unwrap().deref_mut();
         // SAFETY: self.active_fut is never moved by self after the first call to produce completes.
         //         self itself is pinned.
         let fut = unsafe { Pin::new_unchecked(fut) };
@@ -97,7 +99,7 @@ where
     }
 }
 
-pub struct NolifeFuture<'a, 'b, T>
+pub struct FrozenFuture<'a, 'b, T>
 where
     T: for<'c> Family<'c>,
     'b: 'a,
@@ -133,18 +135,18 @@ where
     pub fn freeze<'a, 'b>(
         &'a mut self,
         t: &'a mut <T as Family<'b>>::Family,
-    ) -> NolifeFuture<'a, 'b, T>
+    ) -> FrozenFuture<'a, 'b, T>
     where
         'b: 'a,
     {
-        NolifeFuture {
+        FrozenFuture {
             mut_ref: Cell::new(Some(t)),
             state: self.state,
         }
     }
 }
 
-impl<'a, 'b, T> Future for NolifeFuture<'a, 'b, T>
+impl<'a, 'b, T> Future for FrozenFuture<'a, 'b, T>
 where
     T: for<'c> Family<'c>,
 {
@@ -221,15 +223,4 @@ mod test {
         scope.enter(|x| *x += 1);
         scope.enter(|x| println!("{x}"))
     }
-
-    struct Contravariant<'a> {
-        f: Box<dyn Fn(&'a u32) -> u32>,
-    }
-
-    impl<'a> Family<'a> for Contravariant<'a> {
-        type Family = Self;
-    }
-
-    #[test]
-    fn contravariant() {}
 }
