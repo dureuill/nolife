@@ -2,6 +2,10 @@ use std::{future::Future, mem::ManuallyDrop};
 
 use crate::{Family, Never, Scope, TimeCapsule};
 
+/// A dynamic scope tied to a Box.
+///
+/// Contrary to [`crate::StackScope`], this kind of scopes uses a dynamic allocation.
+/// In exchange, it is fully `'static` and can be moved after creation.
 #[repr(transparent)]
 pub struct BoxScope<T, F>(std::ptr::NonNull<Scope<T, F>>)
 where
@@ -32,12 +36,18 @@ where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
+    /// Creates a new unopened scope.
     pub fn new() -> Self {
         let b = Box::new(Scope::new());
         let b = Box::leak(b);
         Self(b.into())
     }
 
+    /// Opens this scope, making it possible to call [`Self::enter`] on the scope.
+    ///
+    /// # Panics
+    ///
+    /// - If this method is called on an already opened scope.
     pub fn open<P>(&mut self, producer: P)
     where
         P: FnOnce(TimeCapsule<T>) -> F,
@@ -46,6 +56,14 @@ where
         unsafe { Scope::open(self.0, producer) }
     }
 
+    /// Enters the scope, making it possible to access the data frozen inside of the scope.
+    ///
+    /// # Panics
+    ///
+    /// - If this method is called on an unopened scope.
+    /// - If the passed function panics.
+    /// - If the underlying future panics.
+    /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
     pub fn enter<'borrow, Output: 'borrow, G>(&'borrow mut self, f: G) -> Output
     where
         G: FnOnce(&'borrow mut <T as Family<'borrow>>::Family) -> Output + 'static,

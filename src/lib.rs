@@ -1,3 +1,144 @@
+#![warn(rustdoc::broken_intra_doc_links)]
+#![warn(missing_docs)]
+
+//! Open a scope and then freeze it in time for future access.
+//!
+//! This crate allows constructing structs that contain references and keeping them alive alongside the data they reference,
+//! without a lifetime.
+//!
+//! This is especially useful for zero-copy parsers that construct elaborate (and possibly costly) representations that borrow
+//! the source data.
+//!
+//! In this regard, this crate has similar use cases as [`yoke`].
+//!
+//! Unlike [`yoke`], this crate achieves that by leveraging `async` functions. At their core, `async` functions are self-referential
+//! structs. this crate simply provides a way to ex-filtrate references outside of the async function, in a controlled manner.
+//!
+//!
+//! # Soundness note
+//!
+//! While the code of this crate was reviewed carefully and tested using `miri`, this crate is using **extremely unsafe** code that is
+//! *easy to get wrong*.
+//!
+//! To emphasize what is already written in the license, **use at your own risk**.
+//!
+//! # Using this crate
+//!
+//! After you identified the data and its borrowed representation that you'd like to access without a lifetime,
+//! using this crate will typically encompass a few steps:
+//!
+//! 1. Define a helper type that will express where the lifetimes of the borrowed representation live.
+//!    Given the following types:
+//!
+//!     ```
+//!     struct MyData(Vec<u8>);
+//!     struct MyParsedData<'a>(&'a mut MyData, /* ... */);
+//!     ```
+//!
+//!    we want to define an helper type that will implement the [`Family`] trait and tie its lifetime to `MyParsedData`'s lifetime.
+//!
+//!     ```rust
+//!     # struct MyData(Vec<u8>);
+//!     # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
+//!     struct MyParsedDataFamily; // empty type, no lifetime.
+//!     impl<'a> nolife::Family<'a> for MyParsedDataFamily {
+//!         type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
+//!         // you generally want to replace all lifetimes in the struct with the one of the trait.
+//!     }
+//!     ```
+//!
+//!     2. Define an async function that setups the data and its borrowed representation:
+//!
+//!      ```
+//!      # struct MyData(Vec<u8>);
+//!      # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
+//!      # struct MyParsedDataFamily; // empty type, no lifetime.
+//!      # impl<'a> nolife::Family<'a> for MyParsedDataFamily {
+//!      #     type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
+//!      #     // you generally want to replace all lifetimes in the struct with the one of the trait.
+//!      # }
+//!      async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* 👈 use the helper type we declared */>,
+//!                        data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
+//!      -> nolife::Never /* 👈 will be returned from loop */ {
+//!          let mut data = MyData(data_source);
+//!          let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
+//!          loop /* 👈 will be coerced to a `Never` */ {
+//!              time_capsule.freeze(&mut parsed_data).await; // gives access to the parsed data to the outside.
+//!                                /* 👆 reference to the borrowed data */
+//!          }
+//!      }
+//!      ```
+//!
+//!      3. Open a scope, either on the [stack](`StackScope`) or in a [box](`BoxScope`),
+//!      using the previously written async function:
+//!
+//!      ```
+//!      # struct MyData(Vec<u8>);
+//!      # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
+//!      # struct MyParsedDataFamily; // empty type, no lifetime.
+//!      # impl<'a> nolife::Family<'a> for MyParsedDataFamily {
+//!      #     type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
+//!      #     // you generally want to replace all lifetimes in the struct with the one of the trait.
+//!      # }
+//!      # async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* 👈 use the helper type we declared */>,
+//!      #                   data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
+//!      # -> nolife::Never /* 👈 will be returned from loop */ {
+//!      #     let mut data = MyData(data_source);
+//!      #     let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
+//!      #     loop /* 👈 will be coerced to a `Never` */ {
+//!      #         time_capsule.freeze(&mut parsed_data).await; // gives access to the parsed data to the outside.
+//!      #                           /* 👆 reference to the borrowed data */
+//!      #     }
+//!      # }
+//!      let mut scope = nolife::BoxScope::new();
+//!      scope.open(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
+//!      // You can now store the open scope anywhere you want.
+//!      ```
+//!
+//!      4. Lastly, enter the scope to retrieve access to the referenced value.
+//!      ```
+//!      # struct MyData(Vec<u8>);
+//!      # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
+//!      # struct MyParsedDataFamily; // empty type, no lifetime.
+//!      # impl<'a> nolife::Family<'a> for MyParsedDataFamily {
+//!      #     type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
+//!      #     // you generally want to replace all lifetimes in the struct with the one of the trait.
+//!      # }
+//!      # async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* 👈 use the helper type we declared */>,
+//!      #                   data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
+//!      # -> nolife::Never /* 👈 will be returned from loop */ {
+//!      #     let mut data = MyData(data_source);
+//!      #     let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
+//!      #     loop /* 👈 will be coerced to a `Never` */ {
+//!      #         time_capsule.freeze(&mut parsed_data).await; // gives access to the parsed data to the outside.
+//!      #                           /* 👆 reference to the borrowed data */
+//!      #     }
+//!      # }
+//!      # let mut scope = nolife::BoxScope::new();
+//!      # scope.open(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
+//!      scope.enter(|parsed_data| { /* do what you need with the parsed data */ });
+//!      ```
+//!
+//! # Kinds of scopes
+//!
+//! This crate provides two kinds of scopes, at the moment, with varying properties:
+//!
+//! |Scope|Allocations|Moveable after opening|Thread-safe|
+//! |-----|-----------|----------------------|-----------|
+//! |[`BoxScope`]|1 (size of the contained Future + 1 pointer to the reference type)|Yes|No|
+//! |[`StackScope`]|0|No|No|
+//!
+//! An `RcScope` and a `MutexScope` could
+//!
+//! # Inner async support
+//!
+//! At the moment, although the functions passed to [`BoxScope::open`] are asynchronous, they should not `await` futures
+//! other than the [`FrozenFuture`]. Attempting to do so **will result in a panic** if the future does not resolve immediately.
+//!
+//! Future versions of this crate could provide async version of [`BoxScope::enter`] to handle the asynchronous use case.
+//!
+//! [`yoke`]: https://crates.io/crates/yoke
+
 mod box_scope;
 pub mod counterexamples;
 mod stack_scope;
@@ -18,12 +159,31 @@ use std::{
     task::Poll,
 };
 
+/// A type for functions that never return.
+///
+/// Since this enum has no variant, a value of this type can never actually exist.
+/// This type is similar to [`std::convert::Infallible`] and used as a technicality to ensure that
+/// functions passed to [`BoxScope::open`] and [`StackScope::open`] never return.
+///
+/// ## Future compatibility
+///
+/// Should the [the `!` “never” type][never] ever be stabilized, this type would become a type alias and
+/// eventually be deprecated. See [the relevant section](std::convert::Infallible#future-compatibility)
+/// for more information.
 pub enum Never {}
 
+/// Describes a family of types containing a lifetime.
+///
+/// This type is typically implemented on a helper type to describe the lifetime of the borrowed data we want to freeze in time.
+/// See [the module documentation](self) for more information.
 pub trait Family<'a> {
+    /// An instance with lifetime `'a` of the borrowed data.
     type Family: 'a;
 }
 
+/// Underlying representation of a scope.
+///
+/// Used as a parameter to [`StackScope::new_unchecked`].
 pub struct Scope<T, F>
 where
     T: for<'a> Family<'a>,
@@ -39,6 +199,7 @@ where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
+    /// Creates a new closed scope.
     pub fn new() -> Self {
         Self {
             active_fut: RefCell::new(None),
@@ -99,6 +260,7 @@ where
     }
 }
 
+/// The future resulting from using a time capsule to freeze some scope.
 pub struct FrozenFuture<'a, 'b, T>
 where
     T: for<'c> Family<'c>,
@@ -121,6 +283,7 @@ where
     }
 }
 
+/// Passed to the closures of a scope so that they can freeze the scope.
 pub struct TimeCapsule<T>
 where
     T: for<'a> Family<'a>,
@@ -132,6 +295,9 @@ impl<T> TimeCapsule<T>
 where
     T: for<'a> Family<'a>,
 {
+    /// Freeze a scope, making the data it has borrowed available to the outside.
+    ///
+    /// Once a scope is frozen, its borrowed data can be accessed through [`BoxScope::enter`] and [`StackScope::enter`]
     pub fn freeze<'a, 'b>(
         &'a mut self,
         t: &'a mut <T as Family<'b>>::Family,
@@ -174,6 +340,12 @@ where
     }
 }
 
+/// Helper type for static types.
+///
+/// Types that don't contain a lifetime are `'static`, and have one obvious family.
+///
+/// The usefulness of using `'static` types in the scopes of this crate is dubious, but should you want to do this,
+/// for any `T : 'static` pass a `TimeCapsule<SingleFamily<T>>` to your async function.
 pub struct SingleFamily<T: 'static>(PhantomData<T>);
 impl<'a, T: 'static> Family<'a> for SingleFamily<T> {
     type Family = T;
@@ -184,43 +356,36 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut scope = Scope::new();
-        let mut scope = unsafe { StackScope::new_unchecked(&mut scope) };
-
-        scope.open(
-            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+        open_stack_scope!(
+            scope = |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 loop {
                     time_capsule.freeze(&mut x).await;
                     x += 1;
                 }
-            },
+            }
         );
-        println!("{}", scope.enter(|x| *x + 42));
-        println!("{}", scope.enter(|x| *x + 42));
+
+        assert_eq!(scope.enter(|x| *x + 42), 42);
+        assert_eq!(scope.enter(|x| *x + 42), 43);
         scope.enter(|x| *x += 100);
-        println!("{}", scope.enter(|x| *x + 42));
+        assert_eq!(scope.enter(|x| *x + 42), 145);
     }
 
     #[test]
     fn hold_reference() {
-        let mut scope = Scope::new();
-
-        let mut scope = unsafe { StackScope::new_unchecked(&mut scope) };
-        scope.open(
-            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
-                let mut x = 0u32;
-                loop {
-                    time_capsule.freeze(&mut x).await;
-                    x += 1;
-                }
-            },
-        );
+        open_stack_scope! { scope = |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+            let mut x = 0u32;
+            loop {
+                time_capsule.freeze(&mut x).await;
+                x += 1;
+            }
+        } }
 
         let x = scope.enter(|x| x);
         *x = 0;
 
         scope.enter(|x| *x += 1);
-        scope.enter(|x| println!("{x}"))
+        scope.enter(|x| assert_eq!(*x, 3))
     }
 }
