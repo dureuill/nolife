@@ -1,4 +1,5 @@
 mod box_scope;
+pub mod counterexamples;
 mod stack_scope;
 /// From <https://blog.aloni.org/posts/a-stack-less-rust-coroutine-100-loc/>, originally from
 /// [genawaiter](https://lib.rs/crates/genawaiter).
