@@ -9,8 +9,8 @@ mod stack_scope;
 /// [genawaiter](https://lib.rs/crates/genawaiter).
 mod waker;
 
-pub use box_scope::BoxScope;
-pub use stack_scope::StackScope;
+pub use box_scope::{BoxScope, ClosedBoxScope};
+pub use stack_scope::{ClosedStackScope, StackScope};
 
 use std::{
     cell::{Cell, RefCell},
@@ -26,7 +26,7 @@ use std::{
 ///
 /// Since this enum has no variant, a value of this type can never actually exist.
 /// This type is similar to [`std::convert::Infallible`] and used as a technicality to ensure that
-/// functions passed to [`BoxScope::open`] and [`StackScope::open`] never return.
+/// functions passed to [`ClosedBoxScope::open`] and [`ClosedStackScope::open`] never return.
 ///
 /// ## Future compatibility
 ///

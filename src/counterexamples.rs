@@ -22,8 +22,8 @@
 //! fn covariant_inner() {
 //!     {
 //!         let mut scope = Scope::new();
-//!         let mut scope = unsafe { StackScope::new_unchecked(&mut scope) };
-//!         scope.open(
+//!         let scope = unsafe { StackScope::new_unchecked(&mut scope) };
+//!         let mut scope = scope.open(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
 //!                 loop {
@@ -63,8 +63,8 @@
 //!     let output = Cell::new("foo");
 //!     {
 //!         let mut scope = Scope::new();
-//!         let mut scope = unsafe { StackScope::new_unchecked(&mut scope) };
-//!         scope.open(
+//!         let scope = unsafe { StackScope::new_unchecked(&mut scope) };
+//!         let mut scope = scope.open(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
 //!                 loop {
@@ -102,8 +102,8 @@
 //!
 //! fn box_covariant_inner() {
 //!     {
-//!         let mut scope = BoxScope::new();
-//!         scope.open(
+//!         let scope = BoxScope::new();
+//!         let mut scope = scope.open(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let x = String::from("aaaaa");
 //!                 let mut f = Covariant { x: &x };
@@ -142,8 +142,8 @@
 //! fn box_covariant_outer() {
 //!     let outer = Cell::new("foo");
 //!     {
-//!         let mut scope = BoxScope::new();
-//!         scope.open(
+//!         let scope = BoxScope::new();
+//!         let mut scope = scope.open(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let x = String::from("aaaaa");
 //!                 let mut f = Covariant { x: &x };
@@ -185,10 +185,9 @@
 //!     {
 //!         let mut scope = Scope::new();
 //!
-//!         let mut scope = unsafe { StackScope::new_unchecked(&mut scope) };
-//!         let outer = String::from("outer");
+//!         let scope = unsafe { StackScope::new_unchecked(&mut scope) };
 //!
-//!         scope.open(
+//!         let mut scope = scope.open(
 //!             |mut time_capsule: TimeCapsule<CovariantDropFamily>| async move {
 //!                 let mut f = CovariantDrop { x: "inner" };
 //!                 loop {
@@ -197,6 +196,9 @@
 //!                 }
 //!             },
 //!         );
+//!
+//!         let outer = String::from("outer");
+//!
 //!
 //!         {
 //!             scope.enter(|f| {
@@ -226,10 +228,10 @@
 //!     let outer: Cell<&str> = Cell::new("toto");
 //!
 //!     let mut scope = nolife::Scope::new();
-//!     let mut scope = unsafe { nolife::StackScope::new_unchecked(&mut scope) };
+//!     let scope = unsafe { nolife::StackScope::new_unchecked(&mut scope) };
 //!
 //!     {
-//!         scope.open(
+//!         let mut scope = scope.open(
 //!             |mut time_capsule: nolife::TimeCapsule<ContravariantFamily>| async move {
 //!                 loop {
 //!                     let mut x = String::from("inner");
