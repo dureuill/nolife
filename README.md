@@ -84,8 +84,8 @@ After you identified the data and its borrowed representation that you'd like to
      #                           /* 👆 reference to the borrowed data */
      #     }
      # }
-     let mut scope = nolife::BoxScope::new();
-     scope.open(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
+     let scope = nolife::BoxScope::new();
+     let mut scope = scope.open(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
      // You can now store the open scope anywhere you want.
      ```
 
@@ -108,8 +108,8 @@ After you identified the data and its borrowed representation that you'd like to
      #                           /* 👆 reference to the borrowed data */
      #     }
      # }
-     # let mut scope = nolife::BoxScope::new();
-     # scope.open(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
+     # let scope = nolife::BoxScope::new();
+     # let mut scope = scope.open(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
      scope.enter(|parsed_data| { /* do what you need with the parsed data */ });
      ```
 
@@ -126,7 +126,7 @@ An `RcScope` and a `MutexScope` could
 
 # Inner async support
 
-At the moment, although the functions passed to [`BoxScope::open`] are asynchronous, they should not `await` futures other than the [`FrozenFuture`]. Attempting to do so **will result in a panic** if the future does not resolve immediately.
+At the moment, although the functions passed to [`ClosedBoxScope::open`] are asynchronous, they should not `await` futures other than the [`FrozenFuture`]. Attempting to do so **will result in a panic** if the future does not resolve immediately.
 
 Future versions of this crate could provide async version of [`BoxScope::enter`] to handle the asynchronous use case.
 
