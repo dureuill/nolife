@@ -1,5 +1,11 @@
 Open a scope and then freeze it in time for future access.
 
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache%202%20-green)](#License)
+[![Crates.io](https://img.shields.io/crates/v/nolife)](https://crates.io/crates/nolife)
+[![Docs](https://docs.rs/nolife/badge.svg)](https://docs.rs/nolife)
+[![dependency status](https://deps.rs/repo/github/dureuill/nolife/status.svg)](https://deps.rs/repo/github/dureuill/nolife)
+[![Build](https://github.com/dureuill/nolife/actions/workflows/rust.yml/badge.svg)](https://github.com/dureuill/nolife/actions/workflows/rust.yml)
+
 This crate allows constructing structs that contain references and keeping them alive alongside the data they reference,
 without a lifetime.
 
