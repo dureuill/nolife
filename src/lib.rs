@@ -43,8 +43,6 @@ pub trait Family<'a> {
 }
 
 /// Underlying representation of a scope.
-///
-/// Used as a parameter to [`StackScope::new_unchecked`].
 struct Scope<T, F>
 where
     T: for<'a> Family<'a>,
@@ -220,7 +218,7 @@ where
 ///
 /// The usefulness of using `'static` types in the scopes of this crate is dubious, but should you want to do this,
 /// for any `T : 'static` pass a `TimeCapsule<SingleFamily<T>>` to your async function.
-pub struct SingleFamily<T: 'static>(PhantomData<T>);
+struct SingleFamily<T: 'static>(PhantomData<T>);
 impl<'a, T: 'static> Family<'a> for SingleFamily<T> {
     type Family = T;
 }
