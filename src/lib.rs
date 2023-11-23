@@ -138,4 +138,58 @@ mod test {
         // '1' skipped due to panic
         scope.enter(|x| assert_eq!(*x, 2));
     }
+
+    #[test]
+    fn cursed_time_capsule_inception() {
+        struct TimeCapsuleFamily;
+        impl<'a> Family<'a> for TimeCapsuleFamily {
+            // Yo dawg I heard you like time capsules, so I put time capsules in your time capsules
+            type Family = TimeCapsule<TimeCapsuleFamily>;
+        }
+
+        // we'll use this to check we panicked at the correct location, RTTI-style
+        struct ReachedTheEnd;
+
+        let mut outer_scope = BoxScope::new(
+            |mut time_capsule: TimeCapsule<TimeCapsuleFamily>| async move {
+                let mut inner_scope = BoxScope::new(
+                    |mut inner_time_capsule: TimeCapsule<TimeCapsuleFamily>| async move {
+                        loop {
+                            // very cursed
+                            time_capsule.freeze(&mut inner_time_capsule).await
+                        }
+                    },
+                );
+
+                // we're expecting a panic here; let's catch it and check we're still safe
+                assert!(matches!(
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        inner_scope.enter(|_exchanged_time_capsule| {});
+                    })),
+                    Err(_)
+                ));
+
+                // we can try again
+                assert!(matches!(
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        inner_scope.enter(|_exchanged_time_capsule| {});
+                    })),
+                    Err(_)
+                ));
+
+                // we can't loop here because we relinquished our time capsule to the lambda
+                std::panic::panic_any(ReachedTheEnd)
+            },
+        );
+
+        // will panic with the panic at the end
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            outer_scope.enter(|_time_capsule| {});
+        })) {
+            Ok(_) => panic!("did not panic as expected"),
+            Err(panic) => panic
+                .downcast::<ReachedTheEnd>()
+                .expect("panicked at the wrong location"),
+        };
+    }
 }
