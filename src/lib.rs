@@ -4,13 +4,11 @@
 
 mod box_scope;
 pub mod counterexamples;
-mod stack_scope;
 /// From <https://blog.aloni.org/posts/a-stack-less-rust-coroutine-100-loc/>, originally from
 /// [genawaiter](https://lib.rs/crates/genawaiter).
 mod waker;
 
 pub use box_scope::{BoxScope, ClosedBoxScope};
-pub use stack_scope::{ClosedStackScope, StackScope};
 
 use std::{
     cell::{Cell, RefCell},
@@ -47,7 +45,7 @@ pub trait Family<'a> {
 /// Underlying representation of a scope.
 ///
 /// Used as a parameter to [`StackScope::new_unchecked`].
-pub struct Scope<T, F>
+struct Scope<T, F>
 where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
@@ -97,7 +95,7 @@ where
     #[allow(unused_unsafe)]
     unsafe fn enter<'borrow, Output: 'borrow, G>(this: std::ptr::NonNull<Self>, f: G) -> Output
     where
-        G: FnOnce(&'borrow mut <T as Family<'borrow>>::Family) -> Output + 'borrow,
+        G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
         // SAFETY: `this` is dereference-able as per precondition.
         let this = unsafe { this.as_ref() };
@@ -232,14 +230,15 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        open_stack_scope!(
-            scope = |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+        let scope = BoxScope::new();
+        let mut scope = scope.open(
+            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 loop {
                     time_capsule.freeze(&mut x).await;
                     x += 1;
                 }
-            }
+            },
         );
 
         assert_eq!(scope.enter(|x| *x + 42), 42);
@@ -249,27 +248,9 @@ mod test {
     }
 
     #[test]
-    fn hold_reference() {
-        open_stack_scope! { scope = |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
-            let mut x = 0u32;
-            loop {
-                time_capsule.freeze(&mut x).await;
-                x += 1;
-            }
-        } };
-
-        let x = scope.enter(|x| x);
-        *x = 0;
-
-        scope.enter(|x| *x += 1);
-        scope.enter(|x| assert_eq!(*x, 3))
-    }
-
-    #[test]
     fn panicking_future() {
-        open_stack_scope! { scope = |_: TimeCapsule<SingleFamily<u32>>| async move {
-            panic!()
-        } };
+        let scope = BoxScope::new();
+        let mut scope = scope.open(|_: TimeCapsule<SingleFamily<u32>>| async move { panic!() });
 
         assert!(matches!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -288,11 +269,14 @@ mod test {
 
     #[test]
     fn panicking_future_after_once() {
-        open_stack_scope! { scope = |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
-            let mut x = 0u32;
-            time_capsule.freeze(&mut x).await;
-            panic!()
-        } };
+        let scope = BoxScope::new();
+        let mut scope = scope.open(
+            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+                let mut x = 0u32;
+                time_capsule.freeze(&mut x).await;
+                panic!()
+            },
+        );
 
         scope.enter(|x| println!("{x}"));
 
@@ -313,13 +297,16 @@ mod test {
 
     #[test]
     fn panicking_enter() {
-        open_stack_scope! { scope = |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
-            let mut x = 0u32;
-            loop {
-                time_capsule.freeze(&mut x).await;
-                x += 1;
-            }
-        } };
+        let scope = BoxScope::new();
+        let mut scope = scope.open(
+            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+                let mut x = 0u32;
+                loop {
+                    time_capsule.freeze(&mut x).await;
+                    x += 1;
+                }
+            },
+        );
 
         scope.enter(|x| assert_eq!(*x, 0));
 

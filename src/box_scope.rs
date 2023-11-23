@@ -107,7 +107,7 @@ where
     /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
     pub fn enter<'borrow, Output: 'borrow, G>(&'borrow mut self, f: G) -> Output
     where
-        G: FnOnce(&'borrow mut <T as Family<'borrow>>::Family) -> Output + 'static,
+        G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
         // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
         unsafe { Scope::enter(self.0, f) }
