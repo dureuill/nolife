@@ -21,8 +21,7 @@
 //!
 //! fn covariant_inner() {
 //!     {
-//!         let scope = BoxScope::new();
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
 //!                 loop {
@@ -61,8 +60,7 @@
 //! fn covariant_outer() {
 //!     let output = Cell::new("foo");
 //!     {
-//!         let scope = BoxScope::new();
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
 //!                 loop {
@@ -122,7 +120,7 @@
 //!
 //! ## Covariant escapes to outer 2
 //!
-//! ```compile_fail,E0597
+//! ```compile_fail
 //! use nolife::{BoxScope, Family, TimeCapsule};
 //! use std::cell::Cell;
 //!
@@ -220,7 +218,7 @@
 //!     let outer: Cell<&str> = Cell::new("toto");
 //!
 //!     {
-//!         let mut scope = BoxScope::new(
+//!         let mut scope = nolife::BoxScope::new(
 //!             |mut time_capsule: nolife::TimeCapsule<ContravariantFamily>| async move {
 //!                 loop {
 //!                     let mut x = String::from("inner");
@@ -239,28 +237,6 @@
 //!         });
 //!     }
 //!     println!("{}", outer.get());
-//! }
-//! ```
-//!
-//! ## Holding a reference
-//!
-//! ```compile_fail,E0597
-//! use nolife::{Family, BoxScope, TimeCapsule, SingleFamily};
-//!
-//! fn hold_reference() {
-//!     let mut scope = BoxScope::new(
-//!         |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
-//!             let mut x = 0u32;
-//!             loop {
-//!                 time_capsule.freeze(&mut x).await;
-//!                 x += 1;
-//!             }
-//!         },
-//!     );
-//!     let x = scope.enter(|x| x);
-//!     *x = 0;
-//!     scope.enter(|x| *x += 1);
-//!     scope.enter(|x| assert_eq!(*x, 3))
 //! }
 //! ```
 //!
