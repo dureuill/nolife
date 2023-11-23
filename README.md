@@ -63,7 +63,7 @@ After you identified the data and its borrowed representation that you'd like to
      }
      ```
 
-     3. Open a scope, either on the [stack](`StackScope`) or in a [box](`BoxScope`),
+     3. Open a [box](`BoxScope`),
      using the previously written async function:
 
      ```rust
@@ -115,14 +115,13 @@ After you identified the data and its borrowed representation that you'd like to
 
 # Kinds of scopes
 
-This crate provides two kinds of scopes, at the moment, with varying properties:
+This crate only provide a single kind of scope at the moment
 
 |Scope|Allocations|Moveable after opening|Thread-safe|
 |-----|-----------|----------------------|-----------|
 |[`BoxScope`]|1 (size of the contained Future + 1 pointer to the reference type)|Yes|No|
-|[`StackScope`]|0|No|No|
 
-An `RcScope` and a `MutexScope` could
+An `RcScope` or `MutexScope` could be future extensions
 
 # Inner async support
 

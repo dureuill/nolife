@@ -24,7 +24,7 @@ use std::{
 ///
 /// Since this enum has no variant, a value of this type can never actually exist.
 /// This type is similar to [`std::convert::Infallible`] and used as a technicality to ensure that
-/// functions passed to [`ClosedBoxScope::open`] and [`ClosedStackScope::open`] never return.
+/// functions passed to [`ClosedBoxScope::open`] never return.
 ///
 /// ## Future compatibility
 ///
@@ -167,7 +167,7 @@ where
 {
     /// Freeze a scope, making the data it has borrowed available to the outside.
     ///
-    /// Once a scope is frozen, its borrowed data can be accessed through [`BoxScope::enter`] and [`StackScope::enter`]
+    /// Once a scope is frozen, its borrowed data can be accessed through [`BoxScope::enter`].
     pub fn freeze<'a, 'b>(
         &'a mut self,
         t: &'a mut <T as Family<'b>>::Family,

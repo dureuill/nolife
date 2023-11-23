@@ -4,7 +4,7 @@ use crate::{Family, Never, Scope, TimeCapsule};
 
 /// A dynamic scope tied to a Box.
 ///
-/// Contrary to [`crate::StackScope`], this kind of scopes uses a dynamic allocation.
+/// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
 ///
 /// This scope was already opened from a [`ClosedBoxScope`] and can now be [`BoxScope::enter`]ed.
@@ -16,7 +16,7 @@ where
 
 /// An unopened, dynamic scope tied to a Box.
 ///
-/// Contrary to [`crate::StackScope`], this kind of scopes uses a dynamic allocation.
+/// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
 ///
 /// Use [`ClosedBoxScope::open`] to open this scope and further use it.
