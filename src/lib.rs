@@ -5,13 +5,14 @@
 mod box_scope;
 pub mod counterexamples;
 mod scope;
+pub use scope::{FrozenFuture, TimeCapsule};
 /// From <https://blog.aloni.org/posts/a-stack-less-rust-coroutine-100-loc/>, originally from
 /// [genawaiter](https://lib.rs/crates/genawaiter).
 mod waker;
 
 pub use box_scope::BoxScope;
 
-use std::{cell::Cell, future::Future, marker::PhantomData, task::Poll};
+use std::marker::PhantomData;
 
 /// A type for functions that never return.
 ///
@@ -33,88 +34,6 @@ pub enum Never {}
 pub trait Family<'a> {
     /// An instance with lifetime `'a` of the borrowed data.
     type Family: 'a;
-}
-
-/// The future resulting from using a time capsule to freeze some scope.
-pub struct FrozenFuture<'a, 'b, T>
-where
-    T: for<'c> Family<'c>,
-    'b: 'a,
-{
-    mut_ref: Cell<Option<&'a mut <T as Family<'b>>::Family>>,
-    state: *const State<T>,
-}
-
-struct State<T>(Cell<*mut <T as Family<'static>>::Family>)
-where
-    T: for<'a> Family<'a>;
-
-impl<T> Default for State<T>
-where
-    T: for<'a> Family<'a>,
-{
-    fn default() -> Self {
-        Self(Cell::new(std::ptr::null_mut()))
-    }
-}
-
-/// Passed to the closures of a scope so that they can freeze the scope.
-pub struct TimeCapsule<T>
-where
-    T: for<'a> Family<'a>,
-{
-    state: *const State<T>,
-}
-
-impl<T> TimeCapsule<T>
-where
-    T: for<'a> Family<'a>,
-{
-    /// Freeze a scope, making the data it has borrowed available to the outside.
-    ///
-    /// Once a scope is frozen, its borrowed data can be accessed through [`BoxScope::enter`].
-    pub fn freeze<'a, 'b>(
-        &'a mut self,
-        t: &'a mut <T as Family<'b>>::Family,
-    ) -> FrozenFuture<'a, 'b, T>
-    where
-        'b: 'a,
-    {
-        FrozenFuture {
-            mut_ref: Cell::new(Some(t)),
-            state: self.state,
-        }
-    }
-}
-
-impl<'a, 'b, T> Future for FrozenFuture<'a, 'b, T>
-where
-    T: for<'c> Family<'c>,
-{
-    type Output = ();
-
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> Poll<Self::Output> {
-        // SAFETY: `state` has been set in the future by the scope
-        let state = unsafe { self.state.as_ref().unwrap() };
-        if state.0.get().is_null() {
-            let mut_ref = self
-                .mut_ref
-                .take()
-                .expect("poll called several times on the same future");
-            let mut_ref: *mut <T as Family>::Family = mut_ref;
-            // SAFETY: Will be given back a reasonable lifetime in the `enter` method.
-            let mut_ref: *mut <T as Family<'static>>::Family = mut_ref.cast();
-
-            state.0.set(mut_ref);
-            Poll::Pending
-        } else {
-            state.0.set(std::ptr::null_mut());
-            Poll::Ready(())
-        }
-    }
 }
 
 /// Helper type for static types.

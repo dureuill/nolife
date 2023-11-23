@@ -1,8 +1,65 @@
-use crate::{waker, Family, Never, State, TimeCapsule};
+use crate::{waker, Family, Never};
 use std::{
-    cell::RefCell, future::Future, marker::PhantomData, mem::ManuallyDrop, ops::DerefMut, pin::Pin,
+    cell::{Cell, RefCell},
+    future::Future,
+    marker::PhantomData,
+    mem::ManuallyDrop,
+    ops::DerefMut,
+    pin::Pin,
     task::Poll,
 };
+
+/// The future resulting from using a time capsule to freeze some scope.
+pub struct FrozenFuture<'a, 'b, T>
+where
+    T: for<'c> Family<'c>,
+    'b: 'a,
+{
+    mut_ref: Cell<Option<&'a mut <T as Family<'b>>::Family>>,
+    state: *const State<T>,
+}
+
+/// Passed to the closures of a scope so that they can freeze the scope.
+pub struct TimeCapsule<T>
+where
+    T: for<'a> Family<'a>,
+{
+    state: *const State<T>,
+}
+
+impl<T> TimeCapsule<T>
+where
+    T: for<'a> Family<'a>,
+{
+    /// Freeze a scope, making the data it has borrowed available to the outside.
+    ///
+    /// Once a scope is frozen, its borrowed data can be accessed through [`BoxScope::enter`].
+    pub fn freeze<'a, 'b>(
+        &'a mut self,
+        t: &'a mut <T as Family<'b>>::Family,
+    ) -> FrozenFuture<'a, 'b, T>
+    where
+        'b: 'a,
+    {
+        FrozenFuture {
+            mut_ref: Cell::new(Some(t)),
+            state: self.state,
+        }
+    }
+}
+
+struct State<T>(Cell<*mut <T as Family<'static>>::Family>)
+where
+    T: for<'a> Family<'a>;
+
+impl<T> Default for State<T>
+where
+    T: for<'a> Family<'a>,
+{
+    fn default() -> Self {
+        Self(Cell::new(std::ptr::null_mut()))
+    }
+}
 
 /// Underlying representation of a scope.
 pub(crate) struct Scope<T, F>
@@ -11,8 +68,8 @@ where
     F: Future<Output = Never>,
 {
     pub(crate) active_fut: RefCell<Option<ManuallyDrop<F>>>,
-    pub(crate) phantom: PhantomData<*const fn(TimeCapsule<T>) -> F>,
-    pub(crate) state: State<T>,
+    phantom: PhantomData<*const fn(TimeCapsule<T>) -> F>,
+    state: State<T>,
 }
 
 impl<T, F> Scope<T, F>
@@ -92,5 +149,35 @@ where
             output = f(state);
         }
         output
+    }
+}
+
+impl<'a, 'b, T> Future for FrozenFuture<'a, 'b, T>
+where
+    T: for<'c> Family<'c>,
+{
+    type Output = ();
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        // SAFETY: `state` has been set in the future by the scope
+        let state = unsafe { self.state.as_ref().unwrap() };
+        if state.0.get().is_null() {
+            let mut_ref = self
+                .mut_ref
+                .take()
+                .expect("poll called several times on the same future");
+            let mut_ref: *mut <T as Family>::Family = mut_ref;
+            // SAFETY: Will be given back a reasonable lifetime in the `enter` method.
+            let mut_ref: *mut <T as Family<'static>>::Family = mut_ref.cast();
+
+            state.0.set(mut_ref);
+            Poll::Pending
+        } else {
+            state.0.set(std::ptr::null_mut());
+            Poll::Ready(())
+        }
     }
 }
