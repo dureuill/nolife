@@ -100,8 +100,7 @@
 //!
 //! fn box_covariant_inner() {
 //!     {
-//!         let scope = BoxScope::new();
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let x = String::from("aaaaa");
 //!                 let mut f = Covariant { x: &x };
@@ -140,8 +139,7 @@
 //! fn box_covariant_outer() {
 //!     let outer = Cell::new("foo");
 //!     {
-//!         let scope = BoxScope::new();
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let x = String::from("aaaaa");
 //!                 let mut f = Covariant { x: &x };
@@ -181,9 +179,7 @@
 //!
 //! fn covariant_drop() {
 //!     {
-//!         let scope = BoxScope::new();
-//!
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantDropFamily>| async move {
 //!                 let mut f = CovariantDrop { x: "inner" };
 //!                 loop {
@@ -223,9 +219,8 @@
 //! fn contravariant() {
 //!     let outer: Cell<&str> = Cell::new("toto");
 //!
-//!     let scope = nolife::BoxScope::new();
 //!     {
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: nolife::TimeCapsule<ContravariantFamily>| async move {
 //!                 loop {
 //!                     let mut x = String::from("inner");
@@ -253,8 +248,7 @@
 //! use nolife::{Family, BoxScope, TimeCapsule, SingleFamily};
 //!
 //! fn hold_reference() {
-//!     let scope = BoxScope::new();
-//!     let mut scope = scope.open(
+//!     let mut scope = BoxScope::new(
 //!         |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
 //!             let mut x = 0u32;
 //!             loop {
@@ -288,8 +282,7 @@
 //!
 //! fn covariant_inner() {
 //!     {
-//!         let scope = BoxScope::new();
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
 //!                 loop {

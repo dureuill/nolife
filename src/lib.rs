@@ -4,27 +4,20 @@
 
 mod box_scope;
 pub mod counterexamples;
+mod scope;
 /// From <https://blog.aloni.org/posts/a-stack-less-rust-coroutine-100-loc/>, originally from
 /// [genawaiter](https://lib.rs/crates/genawaiter).
 mod waker;
 
-pub use box_scope::{BoxScope, ClosedBoxScope};
+pub use box_scope::BoxScope;
 
-use std::{
-    cell::{Cell, RefCell},
-    future::Future,
-    marker::PhantomData,
-    mem::ManuallyDrop,
-    ops::DerefMut,
-    pin::Pin,
-    task::Poll,
-};
+use std::{cell::Cell, future::Future, marker::PhantomData, task::Poll};
 
 /// A type for functions that never return.
 ///
 /// Since this enum has no variant, a value of this type can never actually exist.
 /// This type is similar to [`std::convert::Infallible`] and used as a technicality to ensure that
-/// functions passed to [`ClosedBoxScope::open`] never return.
+/// functions passed to [`BoxScope::new`] never return.
 ///
 /// ## Future compatibility
 ///
@@ -40,94 +33,6 @@ pub enum Never {}
 pub trait Family<'a> {
     /// An instance with lifetime `'a` of the borrowed data.
     type Family: 'a;
-}
-
-/// Underlying representation of a scope.
-struct Scope<T, F>
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
-{
-    active_fut: RefCell<Option<ManuallyDrop<F>>>,
-    phantom: PhantomData<*const fn(TimeCapsule<T>) -> F>,
-    state: State<T>,
-}
-
-impl<T, F> Scope<T, F>
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
-{
-    /// Creates a new closed scope.
-    pub fn new() -> Self {
-        Self {
-            active_fut: RefCell::new(None),
-            phantom: PhantomData,
-            state: Default::default(),
-        }
-    }
-
-    /// # Safety
-    ///
-    /// The `this` parameter is *dereference-able*.
-    #[allow(unused_unsafe)]
-    unsafe fn open<P>(this: std::ptr::NonNull<Self>, producer: P)
-    where
-        P: FnOnce(TimeCapsule<T>) -> F,
-    {
-        // SAFETY: `this` is dereference-able as per precondition.
-        let this = unsafe { this.as_ref() };
-        let mut active_fut = this.active_fut.borrow_mut();
-        if active_fut.is_some() {
-            panic!("Multiple calls to open")
-        }
-        let state: *const State<T> = &this.state;
-        let time_capsule = TimeCapsule { state };
-        let fut = producer(time_capsule);
-        *active_fut = Some(ManuallyDrop::new(fut));
-    }
-
-    /// # Safety
-    ///
-    /// The `this` parameter is *dereference-able*.
-    #[allow(unused_unsafe)]
-    unsafe fn enter<'borrow, Output: 'borrow, G>(this: std::ptr::NonNull<Self>, f: G) -> Output
-    where
-        G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
-    {
-        // SAFETY: `this` is dereference-able as per precondition.
-        let this = unsafe { this.as_ref() };
-
-        let mut fut = this.active_fut.borrow_mut();
-        let fut = fut.as_mut().unwrap().deref_mut();
-        // SAFETY: self.active_fut is never moved by self after the first call to produce completes.
-        //         self itself is pinned.
-        let fut = unsafe { Pin::new_unchecked(fut) };
-        // SAFETY: we didn't do anything particular here before calling `poll`, which may panic, so
-        // we have nothing to handle.
-        match fut.poll(&mut std::task::Context::from_waker(&waker::create())) {
-            Poll::Ready(_) => unreachable!(),
-            Poll::Pending => {}
-        }
-        let state = this.state.0.get();
-        // SAFETY: cast the lifetime of the Family to `'borrow`.
-        // This is safe to do
-        let state: *mut <T as Family>::Family = state.cast();
-        let output;
-        {
-            // SAFETY: The `state` variable has been set to a dereference-able value by the future,
-            // or kept its NULL value.
-            let state = unsafe {
-                state
-                    .as_mut()
-                    .expect("The scope's future did not fill the value")
-            };
-            // SAFETY: we're already in a clean state here even if `f` panics.
-            // (not doing anything afterwards beside returning `output`)
-            output = f(state);
-        }
-        output
-    }
 }
 
 /// The future resulting from using a time capsule to freeze some scope.
@@ -228,8 +133,7 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let scope = BoxScope::new();
-        let mut scope = scope.open(
+        let mut scope = BoxScope::new(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 loop {
@@ -247,8 +151,7 @@ mod test {
 
     #[test]
     fn panicking_future() {
-        let scope = BoxScope::new();
-        let mut scope = scope.open(|_: TimeCapsule<SingleFamily<u32>>| async move { panic!() });
+        let mut scope = BoxScope::new(|_: TimeCapsule<SingleFamily<u32>>| async move { panic!() });
 
         assert!(matches!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -267,8 +170,7 @@ mod test {
 
     #[test]
     fn panicking_future_after_once() {
-        let scope = BoxScope::new();
-        let mut scope = scope.open(
+        let mut scope = BoxScope::new(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 time_capsule.freeze(&mut x).await;
@@ -295,8 +197,7 @@ mod test {
 
     #[test]
     fn panicking_enter() {
-        let scope = BoxScope::new();
-        let mut scope = scope.open(
+        let mut scope = BoxScope::new(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
                 loop {

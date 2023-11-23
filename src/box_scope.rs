@@ -1,13 +1,11 @@
 use std::{future::Future, mem::ManuallyDrop};
 
-use crate::{Family, Never, Scope, TimeCapsule};
+use crate::{scope::Scope, Family, Never, TimeCapsule};
 
 /// A dynamic scope tied to a Box.
 ///
 /// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
-///
-/// This scope was already opened from a [`ClosedBoxScope`] and can now be [`BoxScope::enter`]ed.
 #[repr(transparent)]
 pub struct BoxScope<T, F>(std::ptr::NonNull<Scope<T, F>>)
 where
@@ -18,9 +16,7 @@ where
 ///
 /// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
-///
-/// Use [`ClosedBoxScope::open`] to open this scope and further use it.
-pub struct ClosedBoxScope<T, F>(std::ptr::NonNull<Scope<T, F>>)
+struct ClosedBoxScope<T, F>(std::ptr::NonNull<Scope<T, F>>)
 where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>;
@@ -41,7 +37,7 @@ where
     F: Future<Output = Never>,
 {
     /// Creates a new unopened scope.
-    pub fn new() -> Self {
+    fn new() -> Self {
         let b = Box::new(Scope::new());
         let b = Box::leak(b);
         Self(b.into())
@@ -52,7 +48,7 @@ where
     /// # Panics
     ///
     /// - If `producer` panics.
-    pub fn open<P>(self, producer: P) -> BoxScope<T, F>
+    fn open<P>(self, producer: P) -> BoxScope<T, F>
     where
         P: FnOnce(TimeCapsule<T>) -> F,
     {
@@ -93,9 +89,17 @@ where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
-    /// Creates a new unopened scope.
-    pub fn new() -> ClosedBoxScope<T, F> {
-        ClosedBoxScope::new()
+    /// Creates a new scope from a producer.
+    ///
+    /// # Panics
+    ///
+    /// - If `producer` panics.
+    pub fn new<P>(producer: P) -> BoxScope<T, F>
+    where
+        P: FnOnce(TimeCapsule<T>) -> F,
+    {
+        let scope = ClosedBoxScope::new();
+        scope.open(producer)
     }
 
     /// Enters the scope, making it possible to access the data frozen inside of the scope.
