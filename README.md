@@ -1,5 +1,11 @@
 Open a scope and then freeze it in time for future access.
 
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache%202%20-green)](#License)
+[![Crates.io](https://img.shields.io/crates/v/nolife)](https://crates.io/crates/nolife)
+[![Docs](https://docs.rs/nolife/badge.svg)](https://docs.rs/nolife)
+[![dependency status](https://deps.rs/repo/github/dureuill/nolife/status.svg)](https://deps.rs/repo/github/dureuill/nolife)
+[![Build](https://github.com/dureuill/nolife/actions/workflows/rust.yml/badge.svg)](https://github.com/dureuill/nolife/actions/workflows/rust.yml)
+
 This crate allows constructing structs that contain references and keeping them alive alongside the data they reference,
 without a lifetime.
 
@@ -63,7 +69,7 @@ After you identified the data and its borrowed representation that you'd like to
      }
      ```
 
-     3. Open a scope, either on the [stack](`StackScope`) or in a [box](`BoxScope`),
+     3. Open a [box](`BoxScope`),
      using the previously written async function:
 
      ```rust
@@ -84,8 +90,7 @@ After you identified the data and its borrowed representation that you'd like to
      #                           /* 👆 reference to the borrowed data */
      #     }
      # }
-     let scope = nolife::BoxScope::new();
-     let mut scope = scope.open(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
+     let mut scope = nolife::BoxScope::new(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
      // You can now store the open scope anywhere you want.
      ```
 
@@ -108,25 +113,23 @@ After you identified the data and its borrowed representation that you'd like to
      #                           /* 👆 reference to the borrowed data */
      #     }
      # }
-     # let scope = nolife::BoxScope::new();
-     # let mut scope = scope.open(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
+     # let mut scope = nolife::BoxScope::new(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
      scope.enter(|parsed_data| { /* do what you need with the parsed data */ });
      ```
 
 # Kinds of scopes
 
-This crate provides two kinds of scopes, at the moment, with varying properties:
+This crate only provide a single kind of scope at the moment
 
 |Scope|Allocations|Moveable after opening|Thread-safe|
 |-----|-----------|----------------------|-----------|
 |[`BoxScope`]|1 (size of the contained Future + 1 pointer to the reference type)|Yes|No|
-|[`StackScope`]|0|No|No|
 
-An `RcScope` and a `MutexScope` could
+An `RcScope` or `MutexScope` could be future extensions
 
 # Inner async support
 
-At the moment, although the functions passed to [`ClosedBoxScope::open`] are asynchronous, they should not `await` futures other than the [`FrozenFuture`]. Attempting to do so **will result in a panic** if the future does not resolve immediately.
+At the moment, although the functions passed to [`BoxScope::new`] are asynchronous, they should not `await` futures other than the [`FrozenFuture`]. Attempting to do so **will result in a panic** if the future does not resolve immediately.
 
 Future versions of this crate could provide async version of [`BoxScope::enter`] to handle the asynchronous use case.
 

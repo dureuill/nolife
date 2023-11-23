@@ -4,10 +4,10 @@
 //!
 //! The following examples will not compile, preventing unsoundness.
 //!
-//! ## Covariant escape to inner
+//! ## Covariant escapes to inner
 //!
-//! ```compile_fail
-//! use nolife::{Family, Scope, StackScope, TimeCapsule};
+//! ```compile_fail,E0597
+//! use nolife::{Family, BoxScope, TimeCapsule};
 //!
 //! struct Covariant<'a> {
 //!     x: &'a str,
@@ -21,9 +21,7 @@
 //!
 //! fn covariant_inner() {
 //!     {
-//!         let mut scope = Scope::new();
-//!         let scope = unsafe { StackScope::new_unchecked(&mut scope) };
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
 //!                 loop {
@@ -45,9 +43,9 @@
 //!
 //! ## Covariant escapes to outer
 //!
-//! ```compile_fail
+//! ```compile_fail,E0521
 //! use std::cell::Cell;
-//! use nolife::{Family, Scope, StackScope, TimeCapsule};
+//! use nolife::{Family, BoxScope, TimeCapsule};
 //!
 //! struct Covariant<'a> {
 //!     x: &'a str,
@@ -62,9 +60,7 @@
 //! fn covariant_outer() {
 //!     let output = Cell::new("foo");
 //!     {
-//!         let mut scope = Scope::new();
-//!         let scope = unsafe { StackScope::new_unchecked(&mut scope) };
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
 //!                 loop {
@@ -84,9 +80,9 @@
 //! }
 //! ```
 //!
-//! ## Covariant escapes to inner, boxed
+//! ## Covariant escapes to inner 2
 //!
-//! ```compile_fail
+//! ```compile_fail,E0597
 //! use nolife::{BoxScope, Family, TimeCapsule};
 //!
 //!
@@ -102,8 +98,7 @@
 //!
 //! fn box_covariant_inner() {
 //!     {
-//!         let scope = BoxScope::new();
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let x = String::from("aaaaa");
 //!                 let mut f = Covariant { x: &x };
@@ -123,7 +118,7 @@
 
 //! ```
 //!
-//! ## Covariant escapes to outer, boxed
+//! ## Covariant escapes to outer 2
 //!
 //! ```compile_fail
 //! use nolife::{BoxScope, Family, TimeCapsule};
@@ -142,8 +137,7 @@
 //! fn box_covariant_outer() {
 //!     let outer = Cell::new("foo");
 //!     {
-//!         let scope = BoxScope::new();
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let x = String::from("aaaaa");
 //!                 let mut f = Covariant { x: &x };
@@ -163,8 +157,8 @@
 //!
 //! ## Covariant with `Drop`
 //!
-//! ```compile_fail
-//! use nolife::{Family, Scope, StackScope, TimeCapsule};
+//! ```compile_fail,E0597
+//! use nolife::{Family, BoxScope, TimeCapsule};
 //!
 //! struct CovariantDrop<'a> {
 //!     x: &'a str,
@@ -183,11 +177,7 @@
 //!
 //! fn covariant_drop() {
 //!     {
-//!         let mut scope = Scope::new();
-//!
-//!         let scope = unsafe { StackScope::new_unchecked(&mut scope) };
-//!
-//!         let mut scope = scope.open(
+//!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantDropFamily>| async move {
 //!                 let mut f = CovariantDrop { x: "inner" };
 //!                 loop {
@@ -211,7 +201,7 @@
 //!
 //! ## Contravariant example
 //!
-//! ```compile_fail
+//! ```compile_fail,E0597
 //! use std::cell::Cell;
 //!
 //! struct Contravariant<'a> {
@@ -227,11 +217,8 @@
 //! fn contravariant() {
 //!     let outer: Cell<&str> = Cell::new("toto");
 //!
-//!     let mut scope = nolife::Scope::new();
-//!     let scope = unsafe { nolife::StackScope::new_unchecked(&mut scope) };
-//!
 //!     {
-//!         let mut scope = scope.open(
+//!         let mut scope = nolife::BoxScope::new(
 //!             |mut time_capsule: nolife::TimeCapsule<ContravariantFamily>| async move {
 //!                 loop {
 //!                     let mut x = String::from("inner");
@@ -250,5 +237,46 @@
 //!         });
 //!     }
 //!     println!("{}", outer.get());
+//! }
+//! ```
+//!
+//! ## Covariant coming from a previous scope
+//!
+//! ```compile_fail,E0597
+//! use nolife::{Family, BoxScope, TimeCapsule};
+//!
+//! struct Covariant<'a> {
+//!     x: &'a str,
+//! }
+//!
+//! struct CovariantFamily;
+//!
+//! impl<'a> Family<'a> for CovariantFamily {
+//!     type Family = Covariant<'a>;
+//! }
+//!
+//!
+//! fn covariant_inner() {
+//!     {
+//!         let mut scope = BoxScope::new(
+//!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
+//!                 let mut f = Covariant { x: "bbb" };
+//!                 loop {
+//!                     time_capsule.freeze(&mut f).await;
+//!                     println!("Called {}", f.x)
+//!                 }
+//!             },
+//!         );
+//!         {
+//!             let s = String::from("foodog");
+//!
+//!             {
+//!                 scope.enter(|f| {
+//!                     f.x = &s;
+//!                 });
+//!             }
+//!         }
+//!         scope.enter(|f| ());
+//!     }
 //! }
 //! ```
