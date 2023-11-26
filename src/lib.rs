@@ -12,6 +12,9 @@ mod waker;
 
 pub use box_scope::BoxScope;
 
+/// Convenient type alias for a [`BoxScope`] whose future is an erased boxed future.
+pub type DynBoxScope<T> = BoxScope<T, std::pin::Pin<Box<dyn std::future::Future<Output = Never>>>>;
+
 use std::marker::PhantomData;
 
 /// A type for functions that never return.

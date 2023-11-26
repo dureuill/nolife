@@ -33,7 +33,7 @@ where
 {
     /// Freeze a scope, making the data it has borrowed available to the outside.
     ///
-    /// Once a scope is frozen, its borrowed data can be accessed through [`BoxScope::enter`].
+    /// Once a scope is frozen, its borrowed data can be accessed through [`crate::BoxScope::enter`].
     pub fn freeze<'a, 'b>(
         &'a mut self,
         t: &'a mut <T as Family<'b>>::Family,

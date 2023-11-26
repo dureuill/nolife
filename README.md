@@ -27,95 +27,42 @@ To emphasize what is already written in the license, **use at your own risk**.
 
 After you identified the data and its borrowed representation that you'd like to access without a lifetime, using this crate will typically encompass a few steps:
 
-1. Define a helper type that will express where the lifetimes of the borrowed representation live.
-   Given the following types:
+```rust
+// Given the following types:
+struct MyData(Vec<u8>);
+struct MyParsedData<'a>(&'a mut MyData, /* ... */);
 
-    ```rust
-    struct MyData(Vec<u8>);
-    struct MyParsedData<'a>(&'a mut MyData, /* ... */);
-    ```
+// 1. Define a helper type that will express where the lifetimes of the borrowed representation live.
+struct MyParsedDataFamily; // empty type, no lifetime.
+impl<'a> nolife::Family<'a> for MyParsedDataFamily {
+    type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
+    // you generally want to replace all lifetimes in the struct with the one of the trait.
+}
 
-   we want to define an helper type that will implement the [`Family`] trait and tie its lifetime to `MyParsedData`'s lifetime.
+// 2. Define an async function that setups the data and its borrowed representation:
+async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* 👈 use the helper type we declared */>,
+                  data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
+-> nolife::Never /* 👈 will be returned from loop */ {
+   let mut data = MyData(data_source);
+   let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
+   loop /* 👈 will be coerced to a `Never` */ {
+       time_capsule.freeze(&mut parsed_data).await; // gives access to the parsed data to the outside.
+                         /* 👆 reference to the borrowed data */
+   }
+}
 
-    ```rust
-    # struct MyData(Vec<u8>);
-    # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
-    struct MyParsedDataFamily; // empty type, no lifetime.
-    impl<'a> nolife::Family<'a> for MyParsedDataFamily {
-        type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
-        // you generally want to replace all lifetimes in the struct with the one of the trait.
-    }
-    ```
+// 3. Open a `BoxScope` using the previously written async function:
+let mut scope = nolife::DynBoxScope::new(|time_capsule| Box::pin(my_scope(time_capsule, vec![0, 1, 2])));
 
-    2. Define an async function that setups the data and its borrowed representation:
+// 4. Store the `BoxScope` anywhere you want
+struct ContainsScope {
+    scope: nolife::DynBoxScope<MyParsedDataFamily>
+    /* other data */
+}
 
-     ```rust
-     # struct MyData(Vec<u8>);
-     # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
-     # struct MyParsedDataFamily; // empty type, no lifetime.
-     # impl<'a> nolife::Family<'a> for MyParsedDataFamily {
-     #     type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
-     #     // you generally want to replace all lifetimes in the struct with the one of the trait.
-     # }
-     async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* 👈 use the helper type we declared */>,
-                       data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
-     -> nolife::Never /* 👈 will be returned from loop */ {
-         let mut data = MyData(data_source);
-         let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
-         loop /* 👈 will be coerced to a `Never` */ {
-             time_capsule.freeze(&mut parsed_data).await; // gives access to the parsed data to the outside.
-                               /* 👆 reference to the borrowed data */
-         }
-     }
-     ```
-
-     3. Open a [box](`BoxScope`),
-     using the previously written async function:
-
-     ```rust
-     # struct MyData(Vec<u8>);
-     # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
-     # struct MyParsedDataFamily; // empty type, no lifetime.
-     # impl<'a> nolife::Family<'a> for MyParsedDataFamily {
-     #     type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
-     #     // you generally want to replace all lifetimes in the struct with the one of the trait.
-     # }
-     # async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* 👈 use the helper type we declared */>,
-     #                   data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
-     # -> nolife::Never /* 👈 will be returned from loop */ {
-     #     let mut data = MyData(data_source);
-     #     let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
-     #     loop /* 👈 will be coerced to a `Never` */ {
-     #         time_capsule.freeze(&mut parsed_data).await; // gives access to the parsed data to the outside.
-     #                           /* 👆 reference to the borrowed data */
-     #     }
-     # }
-     let mut scope = nolife::BoxScope::new(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
-     // You can now store the open scope anywhere you want.
-     ```
-
-     4. Lastly, enter the scope to retrieve access to the referenced value.
-     ```rust
-     # struct MyData(Vec<u8>);
-     # struct MyParsedData<'a>(&'a mut MyData, /* ... */);
-     # struct MyParsedDataFamily; // empty type, no lifetime.
-     # impl<'a> nolife::Family<'a> for MyParsedDataFamily {
-     #     type Family = MyParsedData<'a>; // Indicates how the type is tied to the trait's lifetime.
-     #     // you generally want to replace all lifetimes in the struct with the one of the trait.
-     # }
-     # async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* 👈 use the helper type we declared */>,
-     #                   data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
-     # -> nolife::Never /* 👈 will be returned from loop */ {
-     #     let mut data = MyData(data_source);
-     #     let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
-     #     loop /* 👈 will be coerced to a `Never` */ {
-     #         time_capsule.freeze(&mut parsed_data).await; // gives access to the parsed data to the outside.
-     #                           /* 👆 reference to the borrowed data */
-     #     }
-     # }
-     # let mut scope = nolife::BoxScope::new(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
-     scope.enter(|parsed_data| { /* do what you need with the parsed data */ });
-     ```
+// 5. Lastly, enter the scope to retrieve access to the referenced value.
+scope.enter(|parsed_data| { /* do what you need with the parsed data */ });
+```
 
 # Kinds of scopes
 
