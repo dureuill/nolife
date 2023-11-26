@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.1
+
+- Add `DynBoxScope` type for common case of erased future
+
 ## v0.3.0
 
 - Breaking changes:
