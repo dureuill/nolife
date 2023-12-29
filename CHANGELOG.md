@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.4.0
+
+- Breaking change:
+  - ⚠️ The `FrozenFuture` no longer return `Poll::Ready`, alleviating the need for a `loop` around the `freeze` call.
+    ⚠️ Code using a loop **will keep compiling** ⚠️, but any statement after the first `freeze` **is now unreachable**.
+  ```rust
+    async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily, data_source: Vec<u8>)
+    -> nolife::Never {
+       let mut data = MyData(data_source);
+       let mut parsed_data = MyParsedData(&mut data);
+       loop {
+          time_capsule.freeze(&mut parsed_data).await; // 👈 ⚠️ No longer returns
+          // ⚠️ Now unreachble
+          some_operation(parsed_data) // 👈 ⚠️ Never executed
+       }
+    }
+  ```
+  This allows to skip the `loop` and return directly the result of awaiting `freeze`.
+
 ## v0.3.1
 
 - Add `DynBoxScope` type for common case of erased future

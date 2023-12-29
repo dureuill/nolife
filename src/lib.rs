@@ -139,8 +139,8 @@ mod test {
             |mut time_capsule: TimeCapsule<TimeCapsuleFamily>| async move {
                 let mut inner_scope = BoxScope::new(
                     |mut inner_time_capsule: TimeCapsule<TimeCapsuleFamily>| async move {
-                            // very cursed
-                            time_capsule.freeze(&mut inner_time_capsule).await
+                        // very cursed
+                        time_capsule.freeze(&mut inner_time_capsule).await
                     },
                 );
 
