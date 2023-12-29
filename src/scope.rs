@@ -34,6 +34,11 @@ where
     /// Freeze a scope, making the data it has borrowed available to the outside.
     ///
     /// Once a scope is frozen, its borrowed data can be accessed through [`crate::BoxScope::enter`].
+    ///
+    /// # Note
+    ///
+    /// Once awaited, the frozen future will never be ready, so any code after awaiting the `freeze` call will never
+    /// run.
     pub fn freeze<'a, 'b>(
         &'a mut self,
         t: &'a mut <T as Family<'b>>::Family,
@@ -156,7 +161,7 @@ impl<'a, 'b, T> Future for FrozenFuture<'a, 'b, T>
 where
     T: for<'c> Family<'c>,
 {
-    type Output = ();
+    type Output = Never;
 
     fn poll(
         self: std::pin::Pin<&mut Self>,
@@ -174,10 +179,7 @@ where
             let mut_ref: *mut <T as Family<'static>>::Family = mut_ref.cast();
 
             state.0.set(mut_ref);
-            Poll::Pending
-        } else {
-            state.0.set(std::ptr::null_mut());
-            Poll::Ready(())
         }
+        Poll::Pending
     }
 }

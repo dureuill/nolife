@@ -24,10 +24,7 @@
 //!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
-//!                 loop {
-//!                     time_capsule.freeze(&mut f).await;
-//!                     println!("Called {}", f.x)
-//!                 }
+//!                 time_capsule.freeze(&mut f).await
 //!             },
 //!         );
 //!
@@ -63,10 +60,7 @@
 //!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
-//!                 loop {
-//!                     time_capsule.freeze(&mut f).await;
-//!                     println!("Called {}", f.x)
-//!                 }
+//!                 time_capsule.freeze(&mut f).await
 //!             },
 //!         );
 //!
@@ -102,10 +96,7 @@
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let x = String::from("aaaaa");
 //!                 let mut f = Covariant { x: &x };
-//!                 loop {
-//!                     time_capsule.freeze(&mut f).await;
-//!                     println!("Called {}", f.x)
-//!                 }
+//!                 time_capsule.freeze(&mut f).await
 //!             },
 //!         );
 //!
@@ -141,10 +132,7 @@
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let x = String::from("aaaaa");
 //!                 let mut f = Covariant { x: &x };
-//!                 loop {
-//!                     time_capsule.freeze(&mut f).await;
-//!                     println!("Called {}", f.x)
-//!                 }
+//!                 time_capsule.freeze(&mut f).await
 //!             },
 //!         );
 //!
@@ -180,10 +168,8 @@
 //!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantDropFamily>| async move {
 //!                 let mut f = CovariantDrop { x: "inner" };
-//!                 loop {
-//!                     println!("Called {}", f.x);
-//!                     time_capsule.freeze(&mut f).await;
-//!                 }
+//!                 println!("Called {}", f.x);
+//!                 time_capsule.freeze(&mut f).await
 //!             },
 //!         );
 //!
@@ -206,6 +192,7 @@
 //!
 //! struct Contravariant<'a> {
 //!     f: Box<dyn FnMut(&'a mut str) + 'a>,
+//!     x: &'a mut str,
 //! }
 //!
 //! struct ContravariantFamily;
@@ -220,20 +207,21 @@
 //!     {
 //!         let mut scope = nolife::BoxScope::new(
 //!             |mut time_capsule: nolife::TimeCapsule<ContravariantFamily>| async move {
-//!                 loop {
 //!                     let mut x = String::from("inner");
 //!
 //!                     let mut f = Contravariant {
 //!                         f: Box::new(|_| {}),
+//!                         x: &mut x,
 //!                     };
-//!                     time_capsule.freeze(&mut f).await;
-//!                     (f.f)(&mut x);
-//!                 }
+//!                     time_capsule.freeze(&mut f).await
 //!             },
 //!         );
 //!
 //!         scope.enter(|f| {
 //!             f.f = Box::new(|inner| outer.set(inner));
+//!         });
+//!         scope.enter(|f| {
+//!             (f.f)(f.x);
 //!         });
 //!     }
 //!     println!("{}", outer.get());
@@ -261,10 +249,7 @@
 //!         let mut scope = BoxScope::new(
 //!             |mut time_capsule: TimeCapsule<CovariantFamily>| async move {
 //!                 let mut f = Covariant { x: "bbb" };
-//!                 loop {
-//!                     time_capsule.freeze(&mut f).await;
-//!                     println!("Called {}", f.x)
-//!                 }
+//!                 time_capsule.freeze(&mut f).await
 //!             },
 //!         );
 //!         {

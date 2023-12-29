@@ -58,17 +58,14 @@ mod test {
         let mut scope = BoxScope::new(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
-                loop {
-                    time_capsule.freeze(&mut x).await;
-                    x += 1;
-                }
+                time_capsule.freeze(&mut x).await
             },
         );
 
         assert_eq!(scope.enter(|x| *x + 42), 42);
-        assert_eq!(scope.enter(|x| *x + 42), 43);
+        assert_eq!(scope.enter(|x| *x + 42), 42);
         scope.enter(|x| *x += 100);
-        assert_eq!(scope.enter(|x| *x + 42), 145);
+        assert_eq!(scope.enter(|x| *x + 42), 142);
     }
 
     #[test]
@@ -101,20 +98,8 @@ mod test {
         );
 
         scope.enter(|x| println!("{x}"));
-
-        assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scope.enter(|x| println!("{x}"))
-            })),
-            Err(_)
-        ));
-
-        assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scope.enter(|x| println!("{x}"))
-            })),
-            Err(_)
-        ))
+        scope.enter(|x| println!("{x}"));
+        scope.enter(|x| println!("{x}"));
     }
 
     #[test]
@@ -122,10 +107,7 @@ mod test {
         let mut scope = BoxScope::new(
             |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
                 let mut x = 0u32;
-                loop {
-                    time_capsule.freeze(&mut x).await;
-                    x += 1;
-                }
+                time_capsule.freeze(&mut x).await
             },
         );
 
@@ -139,7 +121,7 @@ mod test {
         ));
 
         // '1' skipped due to panic
-        scope.enter(|x| assert_eq!(*x, 2));
+        scope.enter(|x| assert_eq!(*x, 0));
     }
 
     #[test]
@@ -157,10 +139,8 @@ mod test {
             |mut time_capsule: TimeCapsule<TimeCapsuleFamily>| async move {
                 let mut inner_scope = BoxScope::new(
                     |mut inner_time_capsule: TimeCapsule<TimeCapsuleFamily>| async move {
-                        loop {
                             // very cursed
                             time_capsule.freeze(&mut inner_time_capsule).await
-                        }
                     },
                 );
 
