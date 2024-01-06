@@ -1,3 +1,5 @@
+<p align="center"><img width="280px" title="The nolife logo is a Rust lifetime crossed with a red cross" src="https://raw.githubusercontent.com/dureuill/nolife/add_assets/assets/nolife-tr.png"/></p>
+
 Open a scope and then freeze it in time for future access.
 
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache%202%20-green)](#License)
@@ -12,16 +14,7 @@ without a lifetime.
 This is especially useful for zero-copy parsers that construct elaborate (and possibly costly) representations that borrow
 the source data.
 
-In this regard, this crate has similar use cases as [`yoke`].
-
-Unlike [`yoke`], this crate achieves that by leveraging `async` functions. At their core, `async` functions are self-referential structs. this crate simply provides a way to ex-filtrate references outside of the async function, in a controlled manner.
-
-
-# Soundness note
-
-While the code of this crate was reviewed carefully and tested using `miri`, this crate is using **extremely unsafe** code that is *easy to get wrong*.
-
-To emphasize what is already written in the license, **use at your own risk**.
+This crate achieves that by leveraging `async` functions. At their core, `async` functions are self-referential structs. this crate simply provides a way to ex-filtrate references outside of the async function, in a controlled manner.
 
 # Using this crate
 
@@ -83,5 +76,9 @@ Future versions of this crate could provide async version of [`BoxScope::enter`]
 Licensed under either of [Apache License](./LICENSE-APACHE), Version 2.0 or [MIT license](./LICENSE-MIT) at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
+# Alternative
+
+[`yoke`] serves a similar use case as this crate, albeit it is expressed in terms of a self-referential struct rather than as an async scope, which is less natural if the intent is to borrow some data.
 
 [`yoke`]: https://crates.io/crates/yoke
