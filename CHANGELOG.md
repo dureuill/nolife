@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.2
+
+- Add `TimeCapsule::freeze_forever` as a convenience method
+- Add `DynBoxScope::pin` as a convenience method.
+
 ## v0.3.1
 
 - Add `DynBoxScope` type for common case of erased future
