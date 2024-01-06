@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.3
+
+- Fix documentation links
+- Add a beautifully handcrafted icon
+
 ## v0.3.2
 
 - Add `TimeCapsule::freeze_forever` as a convenience method
