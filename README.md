@@ -1,4 +1,4 @@
-<p align="center"><img width="280px" title="The nolife logo is a Rust lifetime crossed with a red cross" src="https://raw.githubusercontent.com/dureuill/nolife/add_assets/assets/nolife-tr.png"/></p>
+<p align="center"><img width="64px" title="The nolife logo is a Rust lifetime crossed with a red cross" src="https://raw.githubusercontent.com/dureuill/nolife/add_assets/assets/nolife-tr.png"/></p>
 
 Open a scope and then freeze it in time for future access.
 
