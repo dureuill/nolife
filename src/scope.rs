@@ -34,6 +34,9 @@ where
     /// Freeze a scope, making the data it has borrowed available to the outside.
     ///
     /// Once a scope is frozen, its borrowed data can be accessed through [`crate::BoxScope::enter`].
+    ///
+    /// For simple cases where you don't need to execute code in the scope between two calls to `enter`,
+    /// use [`freeze_forever`].
     pub fn freeze<'a, 'b>(
         &'a mut self,
         t: &'a mut <T as Family<'b>>::Family,
@@ -44,6 +47,20 @@ where
         FrozenFuture {
             mut_ref: Cell::new(Some(t)),
             state: self.state,
+        }
+    }
+
+    /// Freeze a scope forever, making the data it has borrowed available to the outside.
+    ///
+    /// Once a scope is frozen, its borrowed data can be accessed through [`crate::BoxScope::enter`].
+    ///
+    /// If you need to execute code between two calls to [`crate::BoxScope::enter`], use [`freeze`].
+    pub async fn freeze_forever<'a, 'b>(
+        &'a mut self,
+        t: &'a mut <T as Family<'b>>::Family,
+    ) -> Never {
+        loop {
+            self.freeze(t).await
         }
     }
 }
