@@ -45,14 +45,12 @@ async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* �
 -> nolife::Never /* 👈 will be returned from loop */ {
    let mut data = MyData(data_source);
    let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
-   loop /* 👈 will be coerced to a `Never` */ {
-       time_capsule.freeze(&mut parsed_data).await; // gives access to the parsed data to the outside.
-                         /* 👆 reference to the borrowed data */
-   }
+   time_capsule.freeze_forever(&mut parsed_data).await // gives access to the parsed data to the outside.
+                             /* 👆 reference to the borrowed data */
 }
 
 // 3. Open a `BoxScope` using the previously written async function:
-let mut scope = nolife::DynBoxScope::new(|time_capsule| Box::pin(my_scope(time_capsule, vec![0, 1, 2])));
+let mut scope = nolife::DynBoxScope::pin(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
 
 // 4. Store the `BoxScope` anywhere you want
 struct ContainsScope {
