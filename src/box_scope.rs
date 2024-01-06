@@ -117,3 +117,17 @@ where
         unsafe { Scope::enter(self.0, f) }
     }
 }
+
+impl<T> crate::DynBoxScope<T>
+where
+    T: for<'a> Family<'a>,
+{
+    /// Convenient function to create a new pinned scope from a producer.
+    pub fn pin<P, F>(producer: P) -> Self
+    where
+        P: FnOnce(TimeCapsule<T>) -> F,
+        F: Future<Output = Never> + 'static,
+    {
+        Self::new(|time_capsule| Box::pin(producer(time_capsule)))
+    }
+}
