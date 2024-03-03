@@ -186,7 +186,7 @@ where
     #[allow(unused_unsafe)]
     pub(crate) unsafe fn enter<'borrow, Output: 'borrow, G>(this: NonNull<Self>, f: G) -> Output
     where
-        G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
+        G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
     {
         // SAFETY: precondition (1)
         let RawScopeFields { state, active_fut } = unsafe { Self::fields(this.as_ptr()) };
