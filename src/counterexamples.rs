@@ -41,7 +41,7 @@
 //!
 //! ## Covariant escapes to outer
 //!
-//! ```compile_fail,E0521
+//! ```compile_fail,E0597
 //! use nolife::{scope, BoxScope, Family};
 //! use std::cell::Cell;
 //!
@@ -267,8 +267,8 @@
 //!
 //! Example lifted as-is from [@steffahn](https://github.com/steffahn)
 //!
-//! ```
-//! use nolife::{BoxScope, Family, TimeCapsule};
+//! ```compile_fail,E0597,E0499
+//! use nolife::{BoxScope, Family, TimeCapsule, scope};
 //!
 //! struct Foo<'a> {
 //!     s: String,
@@ -283,13 +283,13 @@
 //!
 //! fn storing_own_reference() {
 //!     {
-//!         let mut scope = BoxScope::new(|mut time_capsule: TimeCapsule<FooFamily>| async move {
+//!         let mut scope: BoxScope<FooFamily, _> = BoxScope::new_typed(scope!({
 //!             let mut f = Foo {
 //!                 s: String::from("Hello World!"),
 //!                 r: None,
 //!             };
-//!             time_capsule.freeze_forever(&mut f).await
-//!         });
+//!             freeze_forever!(&mut f)
+//!         }));
 //!
 //!         scope.enter(|foo| {
 //!             foo.r = Some(&mut foo.s);
