@@ -263,6 +263,53 @@
 //! }
 //! ```
 //!
+//! # Signature of `enter` is not sound, #7 <https://github.com/dureuill/nolife/issues/7>
+//!
+//! Example lifted as-is from [@steffahn](https://github.com/steffahn)
+//!
+//! ```
+//! use nolife::{BoxScope, Family, TimeCapsule};
+//!
+//! struct Foo<'a> {
+//!     s: String,
+//!     r: Option<&'a mut String>,
+//! }
+//!
+//! struct FooFamily;
+//!
+//! impl<'a> Family<'a> for FooFamily {
+//!    type Family = Foo<'a>;
+//! }
+//!
+//! fn storing_own_reference() {
+//!     {
+//!         let mut scope = BoxScope::new(|mut time_capsule: TimeCapsule<FooFamily>| async move {
+//!             let mut f = Foo {
+//!                 s: String::from("Hello World!"),
+//!                 r: None,
+//!             };
+//!             time_capsule.freeze_forever(&mut f).await
+//!         });
+//!
+//!         scope.enter(|foo| {
+//!             foo.r = Some(&mut foo.s);
+//!         });
+//!         scope.enter(|foo| {
+//!             let alias1: &mut String = &mut foo.s;
+//!             let alias2: &mut String = foo.r.as_deref_mut().unwrap(); // miri will complain here already
+//!             // two aliasing mutable references!!
+//!
+//!             let s: &str = alias1;
+//!             let owner: String = std::mem::take(alias2);
+//!
+//!             println!("Now it exists: {s}");
+//!             drop(owner);
+//!             println!("Now it's gone: {s}");
+//!         })
+//!     }
+//! }
+//! ```
+//!
 //! # Recursion is not allowed
 //!
 //! ```compile_fail,E0733
