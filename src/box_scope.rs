@@ -1,44 +1,40 @@
-use std::{future::Future, mem::ManuallyDrop};
+use std::mem::ManuallyDrop;
 
-use crate::{scope::Scope, Family, Never, TimeCapsule};
+use crate::{raw_scope::RawScope, Family, TopScope};
 
 /// A dynamic scope tied to a Box.
 ///
 /// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
 #[repr(transparent)]
-pub struct BoxScope<T, F>(std::ptr::NonNull<Scope<T, F>>)
+pub struct BoxScope<S>(std::ptr::NonNull<RawScope<S>>)
 where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>;
+    S: TopScope;
 
 /// An unopened, dynamic scope tied to a Box.
 ///
 /// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
-struct ClosedBoxScope<T, F>(std::ptr::NonNull<Scope<T, F>>)
+struct ClosedBoxScope<S>(std::ptr::NonNull<RawScope<S>>)
 where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>;
+    S: TopScope;
 
-impl<T, F> Drop for ClosedBoxScope<T, F>
+impl<S> Drop for ClosedBoxScope<S>
 where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
+    S: TopScope,
 {
     fn drop(&mut self) {
         unsafe { drop(Box::from_raw(self.0.as_ptr())) }
     }
 }
 
-impl<T, F> ClosedBoxScope<T, F>
+impl<S> ClosedBoxScope<S>
 where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
+    S: TopScope,
 {
     /// Creates a new unopened scope.
     fn new() -> Self {
-        let b = Box::new(Scope::new());
+        let b = Box::new(RawScope::new());
         let b = Box::leak(b);
         Self(b.into())
     }
@@ -47,13 +43,10 @@ where
     ///
     /// # Panics
     ///
-    /// - If `producer` panics.
-    fn open<P>(self, producer: P) -> BoxScope<T, F>
-    where
-        P: FnOnce(TimeCapsule<T>) -> F,
-    {
+    /// - If `scope` panics.
+    fn open(self, scope: S) -> BoxScope<S> {
         // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
-        unsafe { Scope::open(self.0, producer) }
+        unsafe { RawScope::open(self.0, scope) }
 
         let open_scope = BoxScope(self.0);
 
@@ -64,10 +57,9 @@ where
     }
 }
 
-impl<T, F> Drop for BoxScope<T, F>
+impl<S> Drop for BoxScope<S>
 where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
+    S: TopScope,
 {
     fn drop(&mut self) {
         // SAFETY: created from a Box in the constructor, so dereference-able.
@@ -84,22 +76,18 @@ where
     }
 }
 
-impl<T, F> BoxScope<T, F>
+impl<S> BoxScope<S>
 where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
+    S: TopScope,
 {
     /// Creates a new scope from a producer.
     ///
     /// # Panics
     ///
     /// - If `producer` panics.
-    pub fn new<P>(producer: P) -> BoxScope<T, F>
-    where
-        P: FnOnce(TimeCapsule<T>) -> F,
-    {
-        let scope = ClosedBoxScope::new();
-        scope.open(producer)
+    pub fn new(_family: S::Family, scope: S) -> BoxScope<S> {
+        let closed_scope = ClosedBoxScope::new();
+        closed_scope.open(scope)
     }
 
     /// Enters the scope, making it possible to access the data frozen inside of the scope.
@@ -111,23 +99,9 @@ where
     /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
     pub fn enter<'borrow, Output: 'borrow, G>(&'borrow mut self, f: G) -> Output
     where
-        G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
+        G: for<'a> FnOnce(&'a mut <S::Family as Family<'a>>::Family) -> Output,
     {
         // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
-        unsafe { Scope::enter(self.0, f) }
-    }
-}
-
-impl<T> crate::DynBoxScope<T>
-where
-    T: for<'a> Family<'a>,
-{
-    /// Convenient function to create a new pinned scope from a producer.
-    pub fn pin<P, F>(producer: P) -> Self
-    where
-        P: FnOnce(TimeCapsule<T>) -> F,
-        F: Future<Output = Never> + 'static,
-    {
-        Self::new(|time_capsule| Box::pin(producer(time_capsule)))
+        unsafe { RawScope::enter(self.0, f) }
     }
 }

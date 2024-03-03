@@ -10,16 +10,17 @@
 
 mod box_scope;
 pub mod counterexamples;
-mod scope;
-pub use scope::{FrozenFuture, TimeCapsule};
+mod raw_scope;
+pub mod scope;
+#[doc(hidden)]
+pub use raw_scope::{FrozenFuture, TimeCapsule};
 /// From <https://blog.aloni.org/posts/a-stack-less-rust-coroutine-100-loc/>, originally from
 /// [genawaiter](https://lib.rs/crates/genawaiter).
 mod waker;
 
 pub use box_scope::BoxScope;
-
-/// Convenient type alias for a [`BoxScope`] whose future is an erased boxed future.
-pub type DynBoxScope<T> = BoxScope<T, std::pin::Pin<Box<dyn std::future::Future<Output = Never>>>>;
+pub use scope::Scope;
+pub use scope::TopScope;
 
 use std::marker::PhantomData;
 
@@ -62,10 +63,11 @@ mod test {
     #[test]
     fn produce_output() {
         let mut scope = BoxScope::new(
-            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+            SingleFamily::<u32>(PhantomData),
+            scope! {
                 let mut x = 0u32;
                 loop {
-                    time_capsule.freeze(&mut x).await;
+                    freeze!(&mut x);
                     x += 1;
                 }
             },
@@ -79,7 +81,7 @@ mod test {
 
     #[test]
     fn panicking_future() {
-        let mut scope = BoxScope::new(|_: TimeCapsule<SingleFamily<u32>>| async move { panic!() });
+        let mut scope = BoxScope::new(SingleFamily::<u32>(PhantomData), scope! { panic!() });
 
         assert!(matches!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -99,9 +101,10 @@ mod test {
     #[test]
     fn panicking_future_after_once() {
         let mut scope = BoxScope::new(
-            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+            SingleFamily::<u32>(PhantomData),
+            scope! {
                 let mut x = 0u32;
-                time_capsule.freeze(&mut x).await;
+                freeze!(&mut x);
                 panic!()
             },
         );
@@ -126,10 +129,11 @@ mod test {
     #[test]
     fn panicking_enter() {
         let mut scope = BoxScope::new(
-            |mut time_capsule: TimeCapsule<SingleFamily<u32>>| async move {
+            SingleFamily::<u32>(PhantomData),
+            scope! {
                 let mut x = 0u32;
                 loop {
-                    time_capsule.freeze(&mut x).await;
+                    freeze!(&mut x);
                     x += 1;
                 }
             },
@@ -148,57 +152,5 @@ mod test {
         scope.enter(|x| assert_eq!(*x, 2));
     }
 
-    #[test]
-    fn cursed_time_capsule_inception() {
-        struct TimeCapsuleFamily;
-        impl<'a> Family<'a> for TimeCapsuleFamily {
-            // Yo dawg I heard you like time capsules, so I put time capsules in your time capsules
-            type Family = TimeCapsule<TimeCapsuleFamily>;
-        }
-
-        // we'll use this to check we panicked at the correct location, RTTI-style
-        struct ReachedTheEnd;
-
-        let mut outer_scope = BoxScope::new(
-            |mut time_capsule: TimeCapsule<TimeCapsuleFamily>| async move {
-                let mut inner_scope = BoxScope::new(
-                    |mut inner_time_capsule: TimeCapsule<TimeCapsuleFamily>| async move {
-                        loop {
-                            // very cursed
-                            time_capsule.freeze(&mut inner_time_capsule).await
-                        }
-                    },
-                );
-
-                // we're expecting a panic here; let's catch it and check we're still safe
-                assert!(matches!(
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        inner_scope.enter(|_exchanged_time_capsule| {});
-                    })),
-                    Err(_)
-                ));
-
-                // we can try again
-                assert!(matches!(
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        inner_scope.enter(|_exchanged_time_capsule| {});
-                    })),
-                    Err(_)
-                ));
-
-                // we can't loop here because we relinquished our time capsule to the lambda
-                std::panic::panic_any(ReachedTheEnd)
-            },
-        );
-
-        // will panic with the panic at the end
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            outer_scope.enter(|_time_capsule| {});
-        })) {
-            Ok(_) => panic!("did not panic as expected"),
-            Err(panic) => panic
-                .downcast::<ReachedTheEnd>()
-                .expect("panicked at the wrong location"),
-        };
-    }
+    // TODO: add cursed swapped scopes test
 }

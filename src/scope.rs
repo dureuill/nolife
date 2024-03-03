@@ -1,200 +1,167 @@
-use crate::{waker, Family, Never};
-use std::{
-    cell::{Cell, RefCell},
-    future::Future,
-    marker::PhantomData,
-    mem::ManuallyDrop,
-    ops::DerefMut,
-    pin::Pin,
-    task::Poll,
-};
+//! Defines a generic `Scope` as a trait that can be instantiated as a [`crate::BoxScope`].
+use std::{future::Future, marker::PhantomData};
 
-/// The future resulting from using a time capsule to freeze some scope.
-pub struct FrozenFuture<'a, 'b, T>
-where
-    T: for<'c> Family<'c>,
-    'b: 'a,
-{
-    mut_ref: Cell<Option<&'a mut <T as Family<'b>>::Family>>,
-    state: *const State<T>,
-}
+use crate::{Family, Never, TimeCapsule};
 
-/// Passed to the closures of a scope so that they can freeze the scope.
-pub struct TimeCapsule<T>
-where
-    T: for<'a> Family<'a>,
-{
-    state: *const State<T>,
-}
-
-impl<T> TimeCapsule<T>
-where
-    T: for<'a> Family<'a>,
-{
-    /// Freeze a scope, making the data it has borrowed available to the outside.
+mod private {
+    /// Trait sealed for safety.
     ///
-    /// Once a scope is frozen, its borrowed data can be accessed through [`crate::BoxScope::enter`].
-    ///
-    /// For simple cases where you don't need to execute code in the scope between two calls to `enter`,
-    /// use [`Self::freeze_forever`].
-    pub fn freeze<'a, 'b>(
-        &'a mut self,
-        t: &'a mut <T as Family<'b>>::Family,
-    ) -> FrozenFuture<'a, 'b, T>
+    /// The trait is only implemented on [`crate::scope::Wrapper`]
+    pub trait Sealed {}
+
+    impl<P, Family, Future, Output> Sealed for super::Wrapper<P, Family, Future, Output>
     where
-        'b: 'a,
+        P: FnOnce(super::TimeCapsule<Family>) -> Future,
+        Family: for<'a> crate::Family<'a>,
+        Future: std::future::Future<Output = Output>,
     {
-        FrozenFuture {
-            mut_ref: Cell::new(Some(t)),
-            state: self.state,
-        }
     }
+}
 
-    /// Freeze a scope forever, making the data it has borrowed available to the outside.
+/// A scope that can be frozen in time.
+///
+/// To get a `Scope`, use the [`crate::scope!`] macro.
+pub trait Scope: private::Sealed {
+    /// The helper struct that serves to define the reference type.
+    type Family: for<'a> Family<'a>;
+    /// The output type of this scope.
+    type Output;
+    /// The underlying future that serves as a coroutine to freeze the scope.
+    type Future: Future<Output = Self::Output>;
+    /// A function that produces the scope.
+    type Producer: FnOnce(TimeCapsule<Self::Family>) -> Self::Future;
+
+    /// Constructs a new scope from a producer
     ///
-    /// Once a scope is frozen, its borrowed data can be accessed through [`crate::BoxScope::enter`].
-    ///
-    /// If you need to execute code between two calls to [`crate::BoxScope::enter`], use [`Self::freeze`].
-    pub async fn freeze_forever<'a, 'b>(
-        &'a mut self,
-        t: &'a mut <T as Family<'b>>::Family,
-    ) -> Never {
-        loop {
-            self.freeze(t).await
-        }
-    }
-}
-
-struct State<T>(Cell<*mut <T as Family<'static>>::Family>)
-where
-    T: for<'a> Family<'a>;
-
-impl<T> Default for State<T>
-where
-    T: for<'a> Family<'a>,
-{
-    fn default() -> Self {
-        Self(Cell::new(std::ptr::null_mut()))
-    }
-}
-
-/// Underlying representation of a scope.
-pub(crate) struct Scope<T, F>
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
-{
-    pub(crate) active_fut: RefCell<Option<ManuallyDrop<F>>>,
-    phantom: PhantomData<*const fn(TimeCapsule<T>) -> F>,
-    state: State<T>,
-}
-
-impl<T, F> Scope<T, F>
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
-{
-    /// Creates a new closed scope.
-    pub fn new() -> Self {
-        Self {
-            active_fut: RefCell::new(None),
-            phantom: PhantomData,
-            state: Default::default(),
-        }
-    }
-
     /// # Safety
     ///
-    /// The `this` parameter is *dereference-able*.
-    #[allow(unused_unsafe)]
-    pub(crate) unsafe fn open<P>(this: std::ptr::NonNull<Self>, producer: P)
-    where
-        P: FnOnce(TimeCapsule<T>) -> F,
-    {
-        // SAFETY: `this` is dereference-able as per precondition.
-        let this = unsafe { this.as_ref() };
-        let mut active_fut = this.active_fut.borrow_mut();
-        if active_fut.is_some() {
-            panic!("Multiple calls to open")
-        }
-        let state: *const State<T> = &this.state;
-        let time_capsule = TimeCapsule { state };
-        let fut = producer(time_capsule);
-        *active_fut = Some(ManuallyDrop::new(fut));
-    }
+    /// - This function is only safe if the producer guarantees that any call to `crate::TimeCapsule::freeze` or
+    ///   `crate::TimeCapsule::freeze_forever` happens at the top level of the producer,
+    ///   and that the resulting future is awaited immediately.
+    ///
+    /// Using the [`crate::scope!`] macro always verifies this condition and is therefere always safe.
+    unsafe fn new(producer: Self::Producer) -> Self;
 
+    /// Runs a scope by injecting a [`TimeCapsule`].
+    ///
     /// # Safety
     ///
-    /// The `this` parameter is *dereference-able*.
-    #[allow(unused_unsafe)]
-    pub(crate) unsafe fn enter<'borrow, Output: 'borrow, G>(
-        this: std::ptr::NonNull<Self>,
-        f: G,
-    ) -> Output
-    where
-        G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
-    {
-        // SAFETY: `this` is dereference-able as per precondition.
-        let this = unsafe { this.as_ref() };
+    /// - This function is only safe if the produced future is awaited immediately.
+    ///
+    /// Using the `sub_scope` macro inside a [`crate::scope!`] always verifies this condition and is therefore always safe.
+    unsafe fn run(self, time_capsule: TimeCapsule<Self::Family>) -> Self::Future;
+}
 
-        let mut fut = this.active_fut.borrow_mut();
-        let fut = fut.as_mut().unwrap().deref_mut();
-        // SAFETY: self.active_fut is never moved by self after the first call to produce completes.
-        //         self itself is pinned.
-        let fut = unsafe { Pin::new_unchecked(fut) };
-        // SAFETY: we didn't do anything particular here before calling `poll`, which may panic, so
-        // we have nothing to handle.
-        match fut.poll(&mut std::task::Context::from_waker(&waker::create())) {
-            Poll::Ready(_) => unreachable!(),
-            Poll::Pending => {}
-        }
-        let state = this.state.0.get();
-        // SAFETY: cast the lifetime of the Family to `'borrow`.
-        // This is safe to do
-        let state: *mut <T as Family>::Family = state.cast();
-        let output;
-        {
-            // SAFETY: The `state` variable has been set to a dereference-able value by the future,
-            // or kept its NULL value.
-            let state = unsafe {
-                state
-                    .as_mut()
-                    .expect("The scope's future did not fill the value")
-            };
-            // SAFETY: we're already in a clean state here even if `f` panics.
-            // (not doing anything afterwards beside returning `output`)
-            output = f(state);
-        }
-        output
+/// A top-level [`Scope`], always returning [`crate::Never`].
+///
+/// Create one using the [`crate::scope!`] macro.
+pub trait TopScope: Scope<Output = Never> {}
+
+impl<S> TopScope for S where S: Scope<Output = Never> {}
+
+#[doc(hidden)]
+/// A wrapper for a producer.
+///
+/// See [`Scope`] for more information.
+pub struct Wrapper<P, Family, Future, Output>(P, PhantomData<*const Family>)
+where
+    P: FnOnce(TimeCapsule<Family>) -> Future,
+    Family: for<'a> crate::Family<'a>,
+    Future: std::future::Future<Output = Output>;
+
+impl<P, Family, Future, Output> Scope for Wrapper<P, Family, Future, Output>
+where
+    P: FnOnce(TimeCapsule<Family>) -> Future,
+    Family: for<'a> crate::Family<'a>,
+    Future: std::future::Future<Output = Output>,
+{
+    type Family = Family;
+    type Output = Output;
+    type Future = Future;
+    type Producer = P;
+
+    unsafe fn new(producer: P) -> Self {
+        Self(producer, PhantomData)
+    }
+
+    unsafe fn run(self, time_capsule: TimeCapsule<Self::Family>) -> Self::Future {
+        (self.0)(time_capsule)
     }
 }
 
-impl<'a, 'b, T> Future for FrozenFuture<'a, 'b, T>
-where
-    T: for<'c> Family<'c>,
-{
-    type Output = ();
-
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> Poll<Self::Output> {
-        // SAFETY: `state` has been set in the future by the scope
-        let state = unsafe { self.state.as_ref().unwrap() };
-        if state.0.get().is_null() {
-            let mut_ref = self
-                .mut_ref
-                .take()
-                .expect("poll called several times on the same future");
-            let mut_ref: *mut <T as Family>::Family = mut_ref;
-            // SAFETY: Will be given back a reasonable lifetime in the `enter` method.
-            let mut_ref: *mut <T as Family<'static>>::Family = mut_ref.cast();
-
-            state.0.set(mut_ref);
-            Poll::Pending
-        } else {
-            state.0.set(std::ptr::null_mut());
-            Poll::Ready(())
-        }
+/// A macro to open a scope that can be frozen in time.
+///
+/// You can write code like you normally would in that scope, but you get 3 additional superpowers:
+///
+/// 1. `freeze!(&mut x)`: interrupts execution of the scope until the next call to [`crate::BoxScope::enter`],
+///   that will resume execution. The passed `&mut x` will be available to the next call to [`crate::BoxScope::enter`].
+/// 2. `freeze_forever!(&mut x)`: interrupts execution of the scope forever.
+///    All future calls to [`crate::BoxScope::enter`] will have access to the passed `&mut x`.
+/// 3. `subscope!(some_subscope(...))`: execute an expression that can be another function returning a `scope!` itself.
+///    This is meant to be able to structure your code in functions.
+///
+/// A `scope!` invocation returns some type that `impl Scope` or `impl TopScope` (when the scope never returns).
+/// The `Family` type of the `Scope` typically needs to be annotated, whereas the `Future` and `Producer`
+/// types should not be.
+///
+/// TODO: example
+///
+/// # Panics
+///
+/// The block passed to `scope` is technically an `async` block, but trying to `await` a future in this block
+/// will always result in a panic.
+#[macro_export]
+macro_rules! scope {
+    {$($t:tt)*} => {
+        unsafe {
+            #[allow(unused_labels, unused_variables, unused_mut, unused_macros, unreachable_code)]
+            <$crate::scope::Wrapper<_, _, _, _> as $crate::scope::Scope>::new(|mut time_capsule| async move {
+            'check_top: {
+                /// `freeze!(&mut x)` interrupts execution of the scope, making `&mut x` available to the next call
+                /// to [`nolife::BoxScope::enter`].
+                ///
+                /// Execution will resume after a call to [`nolife::BoxScope::enter`].
+                macro_rules! freeze {
+                    ($e:expr) => {
+                        #[allow(unreachable_code)]
+                        if false {
+                            break 'check_top (loop {});
+                        }
+                        $crate::TimeCapsule::freeze(&mut time_capsule, $e).await
+                    }
+                }
+                /// `freeze_forever!(&mut x)` stops execution of the scope forever, making `&mut x` available to all future calls
+                /// to [`$crate::BoxScope::enter`].
+                ///
+                /// Execution will never resume.
+                macro_rules! freeze_forever {
+                    ($e:expr) => {{
+                        #[allow(unreachable_code)]
+                        if false {
+                            break 'check_top (loop {});
+                        }
+                        $crate::TimeCapsule::freeze_forever(&mut time_capsule, $e).await}
+                    }
+                }
+                /// `sub_scope(some_scope)` runs the sub-scope `some_scope` to completion before continuing execution of the current scope,
+                /// yielding the output value of the sub-scope.
+                ///
+                /// `some_scope` is typically an expression that is itself a `scope!`.
+                ///
+                /// This macro is meant to allow you to structure your code in multiple functions.
+                macro_rules! sub_scope {
+                    ($e:expr) => {{
+                        if false {
+                            break 'check_top (loop {});
+                        }
+                        unsafe { $crate::scope::Scope::run($e, time_capsule).await }}
+                    }
+                }
+                {
+                    $($t)*
+                }
+            }
+        })
     }
+    };
 }
