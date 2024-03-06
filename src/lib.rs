@@ -144,4 +144,7 @@ mod test {
     }
 
     // TODO: add cursed swapped scopes test
+
+    // TODO: Lifetime test case, see
+    // <https://github.com/dureuill/nolife/pull/12/commits/5aa857d5d3880240c9fcac9057c31a0e9ab6fa10>
 }
