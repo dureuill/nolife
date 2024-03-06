@@ -113,7 +113,7 @@ where
 /// will always result in a panic.
 #[macro_export]
 macro_rules! scope {
-    {$($t:tt)*} => {
+    ($b:block) => {
         match |#[allow(unused_variables, unused_mut)] mut time_capsule| async move {
             'check_top: {
                 #[allow(unreachable_code)]
@@ -164,9 +164,7 @@ macro_rules! scope {
                         match $e { e => unsafe { $crate::scope::Scope::run(e, time_capsule).await } }
                     }}
                 }
-                {
-                    $($t)*
-                }
+                $b
             }
         } { scope => unsafe { $crate::scope::new_scope(scope) } }
     };

@@ -33,14 +33,16 @@ impl<'a> nolife::Family<'a> for MyParsedDataFamily {
 }
 
 // 2. Define a function that setups the data and its borrowed representation:
-fn my_scope(data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
--> impl nolife::TopScope<Family = MyParsedDataFamily> /* 👈 use the helper type we declared */ {
-    nolife::scope! {
+fn my_scope(
+    data_source: Vec<u8>, // 👈 all parameters that allow to build a `MyData`
+) -> impl nolife::TopScope<Family = MyParsedDataFamily> // 👈 use the helper type we declared
+{
+    nolife::scope!({
         let mut data = MyData(data_source);
         let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
         freeze_forever!(&mut parsed_data) // gives access to the parsed data to the outside.
                        /* 👆 reference to the borrowed data */
-    }
+    })
 }
 
 // 3. Open a `BoxScope` using the previously written async function:
@@ -48,7 +50,7 @@ let mut scope = nolife::BoxScope::new::<MyParsedDataFamily>(my_scope(vec![0, 1, 
 
 // 4. Store the `BoxScope` anywhere you want
 struct ContainsScope<S: nolife::TopScope<Family = MyParsedDataFamily>> {
-    scope: nolife::BoxScope<S>
+    scope: nolife::BoxScope<S>,
     /* other data */
 }
 
