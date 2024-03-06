@@ -62,16 +62,13 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut scope = BoxScope::new(
-            SingleFamily::<u32>(PhantomData),
-            scope! {
-                let mut x = 0u32;
-                loop {
-                    freeze!(&mut x);
-                    x += 1;
-                }
-            },
-        );
+        let mut scope = BoxScope::new::<SingleFamily<u32>>(scope! {
+            let mut x = 0u32;
+            loop {
+                freeze!(&mut x);
+                x += 1;
+            }
+        });
 
         assert_eq!(scope.enter(|x| *x + 42), 42);
         assert_eq!(scope.enter(|x| *x + 42), 43);
@@ -81,7 +78,7 @@ mod test {
 
     #[test]
     fn panicking_future() {
-        let mut scope = BoxScope::new(SingleFamily::<u32>(PhantomData), scope! { panic!() });
+        let mut scope = BoxScope::new::<SingleFamily<u32>>(scope! { panic!() });
 
         assert!(matches!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -100,14 +97,11 @@ mod test {
 
     #[test]
     fn panicking_future_after_once() {
-        let mut scope = BoxScope::new(
-            SingleFamily::<u32>(PhantomData),
-            scope! {
-                let mut x = 0u32;
-                freeze!(&mut x);
-                panic!()
-            },
-        );
+        let mut scope = BoxScope::new::<SingleFamily<u32>>(scope! {
+            let mut x = 0u32;
+            freeze!(&mut x);
+            panic!()
+        });
 
         scope.enter(|x| println!("{x}"));
 
@@ -128,16 +122,13 @@ mod test {
 
     #[test]
     fn panicking_enter() {
-        let mut scope = BoxScope::new(
-            SingleFamily::<u32>(PhantomData),
-            scope! {
-                let mut x = 0u32;
-                loop {
-                    freeze!(&mut x);
-                    x += 1;
-                }
-            },
-        );
+        let mut scope = BoxScope::new::<SingleFamily<u32>>(scope! {
+            let mut x = 0u32;
+            loop {
+                freeze!(&mut x);
+                x += 1;
+            }
+        });
 
         scope.enter(|x| assert_eq!(*x, 0));
 

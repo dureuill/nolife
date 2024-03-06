@@ -44,7 +44,7 @@ fn my_scope(data_source: Vec<u8> /* 👈 all parameters that allow to build a `M
 }
 
 // 3. Open a `BoxScope` using the previously written async function:
-let mut scope = nolife::BoxScope::new(MyParsedDataFamily, my_scope(vec![0, 1, 2]));
+let mut scope = nolife::BoxScope::new::<MyParsedDataFamily>(my_scope(vec![0, 1, 2]));
 
 // 4. Store the `BoxScope` anywhere you want
 struct ContainsScope<S: nolife::TopScope<Family = MyParsedDataFamily>> {

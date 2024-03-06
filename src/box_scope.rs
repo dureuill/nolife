@@ -85,7 +85,10 @@ where
     /// # Panics
     ///
     /// - If `producer` panics.
-    pub fn new(_family: S::Family, scope: S) -> BoxScope<S> {
+    pub fn new<F>(scope: S) -> BoxScope<S>
+    where
+        S: TopScope<Family = F>,
+    {
         let closed_scope = ClosedBoxScope::new();
         closed_scope.open(scope)
     }
