@@ -114,7 +114,7 @@ where
 #[macro_export]
 macro_rules! scope {
     ($b:block) => {
-        match |#[allow(unused_variables, unused_mut)] mut time_capsule| async move {
+        match move |#[allow(unused_variables, unused_mut)] mut time_capsule| async move {
             'check_top: {
                 #[allow(unreachable_code)]
                 if false {
