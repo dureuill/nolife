@@ -114,14 +114,17 @@ where
 #[macro_export]
 macro_rules! scope {
     {$($t:tt)*} => {
-        unsafe {
-            #[allow(unused_labels, unused_variables, unused_mut, unused_macros, unreachable_code)]
-            $crate::scope::new_scope(|mut time_capsule| async move {
+        match |#[allow(unused_variables, unused_mut)] mut time_capsule| async move {
             'check_top: {
+                #[allow(unreachable_code)]
+                if false {
+                    break 'check_top (loop {});
+                }
                 /// `freeze!(&mut x)` interrupts execution of the scope, making `&mut x` available to the next call
                 /// to [`nolife::BoxScope::enter`].
                 ///
                 /// Execution will resume after a call to [`nolife::BoxScope::enter`].
+                #[allow(unused_macros)]
                 macro_rules! freeze {
                     ($e:expr) => {
                         #[allow(unreachable_code)]
@@ -135,6 +138,7 @@ macro_rules! scope {
                 /// to [`$crate::BoxScope::enter`].
                 ///
                 /// Execution will never resume.
+                #[allow(unused_macros)]
                 macro_rules! freeze_forever {
                     ($e:expr) => {{
                         #[allow(unreachable_code)]
@@ -150,19 +154,20 @@ macro_rules! scope {
                 /// `some_scope` is typically an expression that is itself a `scope!`.
                 ///
                 /// This macro is meant to allow you to structure your code in multiple functions.
+                #[allow(unused_macros)]
                 macro_rules! sub_scope {
                     ($e:expr) => {{
+                        #[allow(unreachable_code)]
                         if false {
                             break 'check_top (loop {});
                         }
-                        unsafe { $crate::scope::Scope::run($e, time_capsule).await }}
-                    }
+                        match $e { e => unsafe { $crate::scope::Scope::run(e, time_capsule).await } }
+                    }}
                 }
                 {
                     $($t)*
                 }
             }
-        })
-    }
+        } { scope => unsafe { $crate::scope::new_scope(scope) } }
     };
 }
