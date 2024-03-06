@@ -3,25 +3,24 @@ use std::{future::Future, marker::PhantomData};
 
 use crate::{Family, Never, TimeCapsule};
 
-mod private {
-    /// Trait sealed for safety.
-    ///
-    /// The trait is only implemented on [`crate::scope::Wrapper`]
-    pub trait Sealed {}
+/// Trait sealed for safety.
+///
+/// The trait is only implemented on [`crate::scope::Wrapper`]
+pub(crate) trait Sealed {}
 
-    impl<P, Family, Future, Output> Sealed for super::Wrapper<P, Family, Future, Output>
-    where
-        P: FnOnce(super::TimeCapsule<Family>) -> Future,
-        Family: for<'a> crate::Family<'a>,
-        Future: std::future::Future<Output = Output>,
-    {
-    }
+impl<P, Family, Future, Output> Sealed for Wrapper<P, Family, Future, Output>
+where
+    P: FnOnce(super::TimeCapsule<Family>) -> Future,
+    Family: for<'a> crate::Family<'a>,
+    Future: std::future::Future<Output = Output>,
+{
 }
 
 /// A scope that can be frozen in time.
 ///
 /// To get a `Scope`, use the [`crate::scope!`] macro.
-pub trait Scope: private::Sealed {
+#[allow(private_bounds)]
+pub trait Scope: Sealed {
     /// The helper struct that serves to define the reference type.
     type Family: for<'a> Family<'a>;
     /// The output type of this scope.
@@ -30,17 +29,6 @@ pub trait Scope: private::Sealed {
     type Future: Future<Output = Self::Output>;
     /// A function that produces the scope.
     type Producer: FnOnce(TimeCapsule<Self::Family>) -> Self::Future;
-
-    /// Constructs a new scope from a producer
-    ///
-    /// # Safety
-    ///
-    /// - This function is only safe if the producer guarantees that any call to `crate::TimeCapsule::freeze` or
-    ///   `crate::TimeCapsule::freeze_forever` happens at the top level of the producer,
-    ///   and that the resulting future is awaited immediately.
-    ///
-    /// Using the [`crate::scope!`] macro always verifies this condition and is therefere always safe.
-    unsafe fn new(producer: Self::Producer) -> Self;
 
     /// Runs a scope by injecting a [`TimeCapsule`].
     ///
@@ -59,11 +47,10 @@ pub trait TopScope: Scope<Output = Never> {}
 
 impl<S> TopScope for S where S: Scope<Output = Never> {}
 
-#[doc(hidden)]
 /// A wrapper for a producer.
 ///
 /// See [`Scope`] for more information.
-pub struct Wrapper<P, Family, Future, Output>(P, PhantomData<*const Family>)
+struct Wrapper<P, Family, Future, Output>(P, PhantomData<*const Family>)
 where
     P: FnOnce(TimeCapsule<Family>) -> Future,
     Family: for<'a> crate::Family<'a>,
@@ -80,13 +67,30 @@ where
     type Future = Future;
     type Producer = P;
 
-    unsafe fn new(producer: P) -> Self {
-        Self(producer, PhantomData)
-    }
-
     unsafe fn run(self, time_capsule: TimeCapsule<Self::Family>) -> Self::Future {
         (self.0)(time_capsule)
     }
+}
+
+#[doc(hidden)]
+/// Constructs a new scope from a producer
+///
+/// # Safety
+///
+/// - This function is only safe if the producer guarantees that any call to `crate::TimeCapsule::freeze` or
+///   `crate::TimeCapsule::freeze_forever` happens at the top level of the producer,
+///   and that the resulting future is awaited immediately.
+///
+/// Using the [`crate::scope!`] macro always verifies this condition and is therefere always safe.
+pub unsafe fn new_scope<P, Family, Future, Output>(
+    producer: P,
+) -> impl Scope<Family = Family, Output = Output, Future = Future>
+where
+    P: FnOnce(TimeCapsule<Family>) -> Future,
+    Family: for<'a> crate::Family<'a>,
+    Future: std::future::Future<Output = Output>,
+{
+    Wrapper(producer, PhantomData)
 }
 
 /// A macro to open a scope that can be frozen in time.
@@ -115,7 +119,7 @@ macro_rules! scope {
     {$($t:tt)*} => {
         unsafe {
             #[allow(unused_labels, unused_variables, unused_mut, unused_macros, unreachable_code)]
-            <$crate::scope::Wrapper<_, _, _, _> as $crate::scope::Scope>::new(|mut time_capsule| async move {
+            $crate::scope::new_scope(|mut time_capsule| async move {
             'check_top: {
                 /// `freeze!(&mut x)` interrupts execution of the scope, making `&mut x` available to the next call
                 /// to [`nolife::BoxScope::enter`].
