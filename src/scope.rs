@@ -27,8 +27,6 @@ pub trait Scope: Sealed {
     type Output;
     /// The underlying future that serves as a coroutine to freeze the scope.
     type Future: Future<Output = Self::Output>;
-    /// A function that produces the scope.
-    type Producer: FnOnce(TimeCapsule<Self::Family>) -> Self::Future;
 
     /// Runs a scope by injecting a [`TimeCapsule`].
     ///
@@ -65,7 +63,6 @@ where
     type Family = Family;
     type Output = Output;
     type Future = Future;
-    type Producer = P;
 
     unsafe fn run(self, time_capsule: TimeCapsule<Self::Family>) -> Self::Future {
         (self.0)(time_capsule)
