@@ -16,6 +16,8 @@ where
 {
 }
 
+impl<Family, Output> Sealed for ErasedScope<Family, Output> where Family: for<'a> crate::Family<'a> {}
+
 /// A scope that can be frozen in time.
 ///
 /// To get a `Scope`, use the [`crate::scope!`] macro.
@@ -36,7 +38,24 @@ pub trait Scope: Sealed {
     ///
     /// Using the `sub_scope` macro inside a [`crate::scope!`] always verifies this condition and is therefore always safe.
     unsafe fn run(self, time_capsule: TimeCapsule<Self::Family>) -> Self::Future;
+
+    /// Returns a type-erased version of this scope.
+    ///
+    /// Use this function when you want to store the scope in a struct *sans* its generic parameters.
+    ///
+    /// This function incurs 2 memory allocations to erase the type.
+    fn erased(self) -> ErasedScope<Self::Family, Self::Output>
+    where
+        Self: Sized + 'static,
+        Self::Future: 'static,
+    {
+        let scope = erased(self);
+
+        ErasedScope(scope)
+    }
 }
+
+type DynFuture<'a, Output> = std::pin::Pin<Box<dyn Future<Output = Output> + 'a>>;
 
 /// A top-level [`Scope`], always returning [`crate::Never`].
 ///
@@ -53,6 +72,63 @@ where
     P: FnOnce(TimeCapsule<Family>) -> Future,
     Family: for<'a> crate::Family<'a>,
     Future: std::future::Future<Output = Output>;
+
+fn erased<S: Scope + 'static>(
+    scope: S,
+) -> Wrapper<
+    Box<dyn (FnOnce(TimeCapsule<S::Family>) -> DynFuture<'static, S::Output>)>,
+    S::Family,
+    DynFuture<'static, S::Output>,
+    S::Output,
+>
+where
+    S::Future: 'static,
+{
+    Wrapper(
+        Box::new(move |time_capsule| {
+            let fut = Box::new(unsafe { scope.run(time_capsule) });
+            let fut = fut as Box<dyn std::future::Future<Output = S::Output>>;
+            let fut = Box::into_pin(fut);
+            fut
+        }),
+        PhantomData,
+    )
+}
+
+/// An type-erased version of a [`Scope`] that can easily be stored in a struct without generics.
+///
+/// Since [`Scope`] is a trait, it needs to be instantiated to be stored in a struct.
+/// This requires parameterizing the struct by at least the `Future` that is stored insie the scope.
+/// Sometimes having parameters is inconvenient for the struct.
+///
+/// When it is so, call [`Scope::erased`] to obtain an [`ErasedScope`] without the `Future` generic parameter.
+/// The trade-off is that the future needs to be allocated as a trait object, as well as the function that
+/// produces the future.
+pub struct ErasedScope<Family, Output>(
+    Wrapper<
+        Box<dyn (FnOnce(TimeCapsule<Family>) -> DynFuture<'static, Output>)>,
+        Family,
+        DynFuture<'static, Output>,
+        Output,
+    >,
+)
+where
+    Family: for<'a> crate::Family<'a>;
+
+impl<Family, Output> Scope for ErasedScope<Family, Output>
+where
+    Family: for<'a> crate::Family<'a>,
+{
+    type Family = Family;
+
+    type Output = Output;
+
+    type Future = DynFuture<'static, Output>;
+
+    unsafe fn run(self, time_capsule: TimeCapsule<Self::Family>) -> Self::Future {
+        self.0.run(time_capsule)
+    }
+}
 
 impl<P, Family, Future, Output> Scope for Wrapper<P, Family, Future, Output>
 where
@@ -78,7 +154,7 @@ where
 ///   `crate::TimeCapsule::freeze_forever` happens at the top level of the producer,
 ///   and that the resulting future is awaited immediately.
 ///
-/// Using the [`crate::scope!`] macro always verifies this condition and is therefere always safe.
+/// Using the [`crate::scope!`] macro always verifies this condition and is therefore always safe.
 pub unsafe fn new_scope<P, Family, Future, Output>(
     producer: P,
 ) -> impl Scope<Family = Family, Output = Output, Future = Future>
