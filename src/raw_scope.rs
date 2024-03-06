@@ -15,7 +15,7 @@ where
     T: for<'c> Family<'c>,
     'b: 'a,
 {
-    mut_ref: Cell<Option<&'a mut <T as Family<'b>>::Family>>,
+    mut_ref: Option<&'a mut <T as Family<'b>>::Family>,
     state: *const State<T>,
 }
 
@@ -56,7 +56,7 @@ where
         'b: 'a,
     {
         FrozenFuture {
-            mut_ref: Cell::new(Some(t)),
+            mut_ref: Some(t),
             state: self.state,
         }
     }
@@ -182,7 +182,7 @@ where
     type Output = ();
 
     fn poll(
-        self: std::pin::Pin<&mut Self>,
+        mut self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
         // SAFETY: `state` has been set in the future by the scope
