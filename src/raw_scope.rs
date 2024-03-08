@@ -204,7 +204,13 @@ where
     pub(crate) unsafe fn erase(this: NonNull<Self>) -> NonNull<RawScope<T, NoFuture>> {
         this.cast()
     }
+}
 
+impl<T, F> RawScope<T, NoFuture<F>>
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never> + 'static,
+{
     pub(crate) unsafe fn open_erased<S: TopScope<Family = T, Future = F>>(
         this: NonNull<Self>,
         scope: S,

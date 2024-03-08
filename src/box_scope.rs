@@ -45,7 +45,10 @@ where
     /// # Panics
     ///
     /// - If `scope` panics.
-    pub fn new_erased<S: TopScope<Family = T>>(scope: S) -> BoxScope<T, NoFuture> {
+    pub fn new_erased<S: TopScope<Family = T>>(scope: S) -> BoxScope<T, NoFuture>
+    where
+        S::Future: 'static,
+    {
         let raw_scope = Box::new(RawScope::new());
         let raw_scope = Box::leak(raw_scope).into();
 
