@@ -38,7 +38,12 @@ impl<ErasedOrF> NoFuture<ErasedOrF> {
 
 impl<F> NoFuture<F>
 where
-    F: Future<Output = Never>,
+    // SAFETY: the lifetime must be static otherwise it is going to be erased.
+    // Alternatively, we could put a lifetime parameter 'a on NoFuture and save the lifetime by
+    // requesting F: 'a.
+    // This doesn't seem super useful because most future erasures are necessary in contexts where there are
+    // no lifetimes.
+    F: Future<Output = Never> + 'static,
 {
     /// Builds a not-yet erased but eraseable future from a future.
     // SAFETY: the only way to build a NoFuture is to start from a future.
@@ -48,7 +53,7 @@ where
             future_poll: future_poll::<F>,
         };
         NoFuture {
-            vtable: vtable,
+            vtable,
             _object: ManuallyDrop::new(future),
         }
     }
@@ -89,7 +94,7 @@ impl<ErasedOrF> Drop for NoFuture<ErasedOrF> {
 ///
 /// 1. f was obtained by calling `NoFuture::<F>::erase(g)`
 /// 2. as this function is dropping the object, it should not be called twice on the same object
-unsafe fn object_drop<F: Future<Output = Never>>(f: NonNull<NoFuture>) {
+unsafe fn object_drop<F: Future<Output = Never> + 'static>(f: NonNull<NoFuture>) {
     // Cast back to NoFuture<F> so that the allocator receives the correct
     // Layout to deallocate the Box's memory.
     let mut f = NoFuture::<F>::unerase(f);
@@ -104,7 +109,7 @@ unsafe fn object_drop<F: Future<Output = Never>>(f: NonNull<NoFuture>) {
 ///
 /// 1. f was obtained by calling `NoFuture::<F>::erase(g)`
 /// 2. f verifies the same guarantees as if it was pinned
-unsafe fn future_poll<F: Future<Output = Never>>(
+unsafe fn future_poll<F: Future<Output = Never> + 'static>(
     f: NonNull<NoFuture>,
     cx: &mut Context,
 ) -> Poll<Never> {
