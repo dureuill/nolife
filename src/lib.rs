@@ -30,7 +30,7 @@ use std::marker::PhantomData;
 ///
 /// Since this enum has no variant, a value of this type can never actually exist.
 /// This type is similar to [`std::convert::Infallible`] and used as a technicality to ensure that
-/// functions passed to [`BoxScope::new`] never return.
+/// functions passed to [`BoxScope::new_erased`] never return.
 ///
 /// ## Future compatibility
 ///
@@ -64,7 +64,7 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -80,7 +80,7 @@ mod test {
 
     #[test]
     fn panicking_future() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({ panic!() }));
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({ panic!() }));
 
         assert!(matches!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -99,7 +99,7 @@ mod test {
 
     #[test]
     fn panicking_future_after_once() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({
             let mut x = 0u32;
             freeze!(&mut x);
             panic!()
@@ -124,7 +124,7 @@ mod test {
 
     #[test]
     fn panicking_enter() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -149,4 +149,6 @@ mod test {
 
     // TODO: Lifetime test case, see
     // <https://github.com/dureuill/nolife/pull/12/commits/5aa857d5d3880240c9fcac9057c31a0e9ab6fa10>
+
+    // TODO: test case using NoFuture, for testing with miri.
 }
