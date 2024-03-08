@@ -10,6 +10,7 @@
 
 mod box_scope;
 pub mod counterexamples;
+mod nofuture;
 mod raw_scope;
 pub mod scope;
 #[doc(hidden)]
