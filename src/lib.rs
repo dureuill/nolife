@@ -20,7 +20,6 @@ pub use raw_scope::{FrozenFuture, TimeCapsule};
 mod waker;
 
 pub use box_scope::BoxScope;
-pub use scope::ErasedScope;
 pub use scope::Scope;
 pub use scope::TopScope;
 
