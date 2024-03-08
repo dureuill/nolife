@@ -102,10 +102,62 @@ where
 ///    This is meant to be able to structure your code in functions.
 ///
 /// A `scope!` invocation returns some type that `impl Scope` or `impl TopScope` (when the scope never returns).
-/// The `Family` type of the `Scope` typically needs to be annotated, whereas the `Future` and `Producer`
-/// types should not be.
+/// The `Family` type of the `Scope` typically needs to be annotated, whereas the `Future` type should not be.
 ///
-/// TODO: example
+///
+/// # Using a subscope
+///
+/// subscopes are useful to split your logic into smaller units (like functions),
+/// and in particular for error handling.
+/// ```
+/// use nolife::{BoxScope, Scope, SingleFamily, TopScope, scope};
+///
+///
+/// fn outer_scope(
+///     input_data: Vec<impl std::io::Read>,
+/// ) -> impl TopScope<Family = SingleFamily<std::io::Result<Option<String>>>> {
+///     scope!({
+///         for input in input_data {
+///             match sub_scope!(inner_scope(input)) {
+///                 Ok(string) => {
+///                     freeze!(&mut Ok(Some(string)));
+///                 }
+///                 Err(err) => {
+///                     freeze_forever!(&mut Err(err));
+///                 }
+///             }
+///         }
+///         freeze_forever!(&mut Ok(None))
+///     })
+/// }
+///
+/// fn inner_scope(
+///     mut input: impl std::io::Read,
+/// ) -> impl Scope<Family = SingleFamily<std::io::Result<Option<String>>>, Output = std::io::Result<String>>
+/// {
+///     scope!({
+///         let mut buf = String::new();
+///         input.read_to_string(&mut buf)?;
+///         freeze!(&mut Ok(Some(buf.clone())));
+///         Ok(buf)
+///     })
+/// }
+/// ```
+/// # Using a scope with a reference in input
+///
+/// ```
+/// use nolife::{SingleFamily, BoxScope, TopScope, scope};
+///
+/// fn scope_with_ref<'scope, 'a: 'scope>(
+///     s: &'a str,
+/// ) -> impl TopScope<Family = SingleFamily<usize>> + 'scope {
+///     scope!({ freeze_forever!(&mut s.len()) })
+/// }
+/// let x = "Intel the Beagle".to_string();
+/// let mut scope = BoxScope::<SingleFamily<usize>, _>::new_typed(scope_with_ref(&x));
+///
+/// scope.enter(|x| assert_eq!(*x, 16));
+/// ```
 ///
 /// # Panics
 ///

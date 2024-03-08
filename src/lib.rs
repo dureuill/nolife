@@ -52,8 +52,8 @@ pub trait Family<'a> {
 /// Types that don't contain a lifetime are `'static`, and have one obvious family.
 ///
 /// The usefulness of using `'static` types in the scopes of this crate is dubious, but should you want to do this,
-/// for any `T : 'static` pass a `TimeCapsule<SingleFamily<T>>` to your async function.
-struct SingleFamily<T: 'static>(PhantomData<T>);
+/// for any `T : 'static` you can use this family.
+pub struct SingleFamily<T: 'static>(PhantomData<T>);
 impl<'a, T: 'static> Family<'a> for SingleFamily<T> {
     type Family = T;
 }
@@ -64,6 +64,22 @@ mod test {
     #[test]
     fn produce_output() {
         let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({
+            let mut x = 0u32;
+            loop {
+                freeze!(&mut x);
+                x += 1;
+            }
+        }));
+
+        assert_eq!(scope.enter(|x| *x + 42), 42);
+        assert_eq!(scope.enter(|x| *x + 42), 43);
+        scope.enter(|x| *x += 100);
+        assert_eq!(scope.enter(|x| *x + 42), 145);
+    }
+
+    #[test]
+    fn produce_output_erased() {
+        let mut scope = BoxScope::<SingleFamily<u32>>::new_erased(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -144,10 +160,46 @@ mod test {
         scope.enter(|x| assert_eq!(*x, 2));
     }
 
-    // TODO: add cursed swapped scopes test
+    #[test]
+    fn ref_scope() {
+        fn scope_with_ref<'scope, 'a: 'scope>(
+            s: &'a str,
+        ) -> impl TopScope<Family = SingleFamily<usize>> + 'scope {
+            scope!({ freeze_forever!(&mut s.len()) })
+        }
+        let x = "Intel the Beagle".to_string();
+        let mut scope = BoxScope::<SingleFamily<usize>, _>::new_typed(scope_with_ref(&x));
 
-    // TODO: Lifetime test case, see
-    // <https://github.com/dureuill/nolife/pull/12/commits/5aa857d5d3880240c9fcac9057c31a0e9ab6fa10>
+        scope.enter(|x| assert_eq!(*x, 16));
+    }
 
-    // TODO: test case using NoFuture, for testing with miri.
+    #[test]
+    fn awaiting_in_scope_ready() {
+        let mut scope = BoxScope::<SingleFamily<u32>>::new_erased(scope!({
+            freeze!(&mut 40);
+            std::future::ready(()).await;
+            freeze_forever!(&mut 42)
+        }));
+
+        scope.enter(|x| assert_eq!(*x, 40));
+        scope.enter(|x| assert_eq!(*x, 42));
+    }
+
+    #[test]
+    fn awaiting_in_scope_panics() {
+        let mut scope = BoxScope::<SingleFamily<u32>>::new_erased(scope!({
+            freeze!(&mut 40);
+            let () = std::future::pending().await;
+            freeze_forever!(&mut 42)
+        }));
+
+        scope.enter(|x| assert_eq!(*x, 40));
+
+        assert!(matches!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                scope.enter(|x| assert_eq!(*x, 42))
+            })),
+            Err(_)
+        ));
+    }
 }
