@@ -46,11 +46,11 @@ fn my_scope(
 }
 
 // 3. Open a `BoxScope` using the previously written async function:
-let mut scope = nolife::BoxScope::new::<MyParsedDataFamily>(my_scope(vec![0, 1, 2]));
+let mut scope = nolife::BoxScope::<MyParsedDataFamily, _>::new(my_scope(vec![0, 1, 2]));
 
 // 4. Store the `BoxScope` anywhere you want
-struct ContainsScope<S: nolife::TopScope<Family = MyParsedDataFamily>> {
-    scope: nolife::BoxScope<S>,
+struct ContainsScope<F: std::future::Future<Output = nolife::Never>> {
+    scope: nolife::BoxScope<MyParsedDataFamily, F>,
     /* other data */
 }
 

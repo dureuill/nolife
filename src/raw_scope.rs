@@ -90,18 +90,20 @@ where
 }
 
 /// Underlying representation of a scope.
-pub(crate) struct RawScope<S>
+pub(crate) struct RawScope<T, F>
 where
-    S: TopScope,
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never>,
 {
-    pub(crate) active_fut: RefCell<Option<ManuallyDrop<S::Future>>>,
-    phantom: PhantomData<*const fn(TimeCapsule<S::Family>) -> S::Future>,
-    state: State<S::Family>,
+    pub(crate) active_fut: RefCell<Option<ManuallyDrop<F>>>,
+    phantom: PhantomData<*const fn(TimeCapsule<T>) -> F>,
+    state: State<T>,
 }
 
-impl<S> RawScope<S>
+impl<T, F> RawScope<T, F>
 where
-    S: TopScope,
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never>,
 {
     /// Creates a new closed scope.
     pub fn new() -> Self {
@@ -116,7 +118,10 @@ where
     ///
     /// The `this` parameter is *dereference-able*.
     #[allow(unused_unsafe)]
-    pub(crate) unsafe fn open(this: std::ptr::NonNull<Self>, scope: S) {
+    pub(crate) unsafe fn open<S: TopScope<Family = T, Future = F>>(
+        this: std::ptr::NonNull<Self>,
+        scope: S,
+    ) {
         // SAFETY: `this` is dereference-able as per precondition.
         let this = unsafe { this.as_ref() };
         let mut active_fut = this.active_fut.borrow_mut();
@@ -138,7 +143,7 @@ where
         f: G,
     ) -> Output
     where
-        G: for<'a> FnOnce(&'a mut <S::Family as Family<'a>>::Family) -> Output,
+        G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
         // SAFETY: `this` is dereference-able as per precondition.
         let this = unsafe { this.as_ref() };
@@ -157,7 +162,7 @@ where
         let state = this.state.0.get();
         // SAFETY: cast the lifetime of the Family to `'borrow`.
         // This is safe to do
-        let state: *mut <S::Family as Family>::Family = state.cast();
+        let state: *mut <T as Family>::Family = state.cast();
         let output;
         {
             // SAFETY: The `state` variable has been set to a dereference-able value by the future,

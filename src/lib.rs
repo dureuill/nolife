@@ -63,7 +63,7 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut scope = BoxScope::new::<SingleFamily<u32>>(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -79,7 +79,7 @@ mod test {
 
     #[test]
     fn panicking_future() {
-        let mut scope = BoxScope::new::<SingleFamily<u32>>(scope!({ panic!() }));
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({ panic!() }));
 
         assert!(matches!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -98,7 +98,7 @@ mod test {
 
     #[test]
     fn panicking_future_after_once() {
-        let mut scope = BoxScope::new::<SingleFamily<u32>>(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             freeze!(&mut x);
             panic!()
@@ -123,7 +123,7 @@ mod test {
 
     #[test]
     fn panicking_enter() {
-        let mut scope = BoxScope::new::<SingleFamily<u32>>(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
