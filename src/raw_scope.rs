@@ -32,7 +32,7 @@ where
     T: for<'a> Family<'a>,
 {
     fn clone(&self) -> Self {
-        Self { state: self.state }
+        *self
     }
 }
 
