@@ -1,11 +1,11 @@
-use crate::{waker, Family, Never, TopScope};
+use crate::{nofuture::NoFuture, waker, Family, Never, TopScope};
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, UnsafeCell},
     future::Future,
     marker::PhantomData,
-    mem::ManuallyDrop,
-    ops::DerefMut,
+    mem::MaybeUninit,
     pin::Pin,
+    ptr::NonNull,
     task::Poll,
 };
 
@@ -90,14 +90,33 @@ where
 }
 
 /// Underlying representation of a scope.
+// SAFETY: repr C to ensure that the layout of the struct stays as declared.
+#[repr(C)]
 pub(crate) struct RawScope<T, F>
 where
     T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
 {
-    pub(crate) active_fut: RefCell<Option<ManuallyDrop<F>>>,
     phantom: PhantomData<*const fn(TimeCapsule<T>) -> F>,
     state: State<T>,
+    // SAFETY:
+    // 1. must be the last item of the struct so that the state is still accessible after casting
+    // 2. unsafe cell allows in place modifications, and is repr[transparent]
+    // 3. maybeuninit allows the future to be setup only once the outer struct has been pinned, and is transparent.
+    pub(crate) active_fut: UnsafeCell<MaybeUninit<F>>,
+}
+
+impl<T, F> RawScope<T, F>
+where
+    T: for<'a> Family<'a>,
+{
+    /// Creates a new closed scope.
+    pub fn new() -> Self {
+        Self {
+            active_fut: UnsafeCell::new(MaybeUninit::uninit()),
+            phantom: PhantomData,
+            state: Default::default(),
+        }
+    }
 }
 
 impl<T, F> RawScope<T, F>
@@ -105,53 +124,47 @@ where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
-    /// Creates a new closed scope.
-    pub fn new() -> Self {
-        Self {
-            active_fut: RefCell::new(None),
-            phantom: PhantomData,
-            state: Default::default(),
-        }
-    }
-
     /// # Safety
     ///
-    /// The `this` parameter is *dereference-able*.
+    /// 1. The `this` parameter is *dereference-able*.
+    ///
+    /// # Warning
+    ///
+    /// Calling this function multiple time will cause the previous future to be dropped.
     #[allow(unused_unsafe)]
-    pub(crate) unsafe fn open<S: TopScope<Family = T, Future = F>>(
-        this: std::ptr::NonNull<Self>,
-        scope: S,
-    ) {
-        // SAFETY: `this` is dereference-able as per precondition.
+    pub(crate) unsafe fn open<S: TopScope<Family = T, Future = F>>(this: NonNull<Self>, scope: S) {
+        // SAFETY: `this` is dereference-able as per precondition (1)
         let this = unsafe { this.as_ref() };
-        let mut active_fut = this.active_fut.borrow_mut();
-        if active_fut.is_some() {
-            panic!("Multiple calls to open")
-        }
+        // SAFETY: the mut reference is exclusive because:
+        // - the scope is !Sync
+        // - it is released by the end of the function
+        let active_fut = unsafe { this.active_fut.get().as_mut() }.unwrap();
+
         let state: *const State<S::Family> = &this.state;
         let time_capsule = TimeCapsule { state };
+        // SAFETY: called run from the executor
         let fut = unsafe { scope.run(time_capsule) };
-        *active_fut = Some(ManuallyDrop::new(fut));
+        active_fut.write(fut);
     }
 
     /// # Safety
     ///
-    /// The `this` parameter is *dereference-able*.
+    /// 1. The `this` parameter is *dereference-able*.
+    /// 2. `open` was called on `this`
+    /// 3. The `this` parameter verifies the pin guarantees
     #[allow(unused_unsafe)]
-    pub(crate) unsafe fn enter<'borrow, Output: 'borrow, G>(
-        this: std::ptr::NonNull<Self>,
-        f: G,
-    ) -> Output
+    pub(crate) unsafe fn enter<'borrow, Output: 'borrow, G>(this: NonNull<Self>, f: G) -> Output
     where
         G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
-        // SAFETY: `this` is dereference-able as per precondition.
+        // SAFETY: `this` is dereference-able as per precondition (1)
         let this = unsafe { this.as_ref() };
 
-        let mut fut = this.active_fut.borrow_mut();
-        let fut = fut.as_mut().unwrap().deref_mut();
-        // SAFETY: self.active_fut is never moved by self after the first call to produce completes.
-        //         self itself is pinned.
+        // SAFETY: RawScope is !Sync + the reference is released by the end of the function.
+        let fut = this.active_fut.get().as_mut().unwrap();
+        // SAFETY: per precondition (2)
+        let fut = fut.assume_init_mut();
+        // SAFETY: per precondition (3)
         let fut = unsafe { Pin::new_unchecked(fut) };
         // SAFETY: we didn't do anything particular here before calling `poll`, which may panic, so
         // we have nothing to handle.
@@ -177,6 +190,37 @@ where
             output = f(state);
         }
         output
+    }
+}
+
+impl<T, F> RawScope<T, NoFuture<F>>
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never>,
+{
+    /// # SAFETY
+    ///
+    /// - This function must be called **after** calling `open(this)`
+    pub(crate) unsafe fn erase(this: NonNull<Self>) -> NonNull<RawScope<T, NoFuture>> {
+        this.cast()
+    }
+
+    pub(crate) unsafe fn open_erased<S: TopScope<Family = T, Future = F>>(
+        this: NonNull<Self>,
+        scope: S,
+    ) {
+        // SAFETY: `this` is dereference-able as per precondition (1)
+        let this = unsafe { this.as_ref() };
+        // SAFETY: the mut reference is exclusive because:
+        // - the scope is !Sync
+        // - it is released by the end of the function
+        let active_fut = unsafe { this.active_fut.get().as_mut() }.unwrap();
+
+        let state: *const State<S::Family> = &this.state;
+        let time_capsule = TimeCapsule { state };
+        // SAFETY: called run from the executor
+        let fut = unsafe { scope.run(time_capsule) };
+        active_fut.write(NoFuture::new(fut));
     }
 }
 

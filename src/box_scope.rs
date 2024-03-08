@@ -1,65 +1,16 @@
-use std::{future::Future, mem::ManuallyDrop};
+use std::future::Future;
 
-use crate::{raw_scope::RawScope, Family, Never, TopScope};
+use crate::{nofuture::NoFuture, raw_scope::RawScope, Family, Never, TopScope};
 
 /// A dynamic scope tied to a Box.
 ///
 /// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
 #[repr(transparent)]
-pub struct BoxScope<T, F>(std::ptr::NonNull<RawScope<T, F>>)
+pub struct BoxScope<T, F = NoFuture>(std::ptr::NonNull<RawScope<T, F>>)
 where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>;
-
-/// An unopened, dynamic scope tied to a Box.
-///
-/// This kind of scopes uses a dynamic allocation.
-/// In exchange, it is fully `'static` and can be moved after creation.
-struct ClosedBoxScope<T, F>(std::ptr::NonNull<RawScope<T, F>>)
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>;
-
-impl<T, F> Drop for ClosedBoxScope<T, F>
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
-{
-    fn drop(&mut self) {
-        unsafe { drop(Box::from_raw(self.0.as_ptr())) }
-    }
-}
-
-impl<T, F> ClosedBoxScope<T, F>
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
-{
-    /// Creates a new unopened scope.
-    fn new() -> Self {
-        let b = Box::new(RawScope::new());
-        let b = Box::leak(b);
-        Self(b.into())
-    }
-
-    /// Opens this scope, making it possible to call [`BoxScope::enter`] on the scope.
-    ///
-    /// # Panics
-    ///
-    /// - If `scope` panics.
-    fn open<S: TopScope<Family = T, Future = F>>(self, scope: S) -> BoxScope<T, F> {
-        // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
-        unsafe { RawScope::open(self.0, scope) }
-
-        let open_scope = BoxScope(self.0);
-
-        // SAFETY: don't call drop on self to avoid double-free since the resource of self was moved to `open_scope`
-        std::mem::forget(self);
-
-        open_scope
-    }
-}
 
 impl<T, F> Drop for BoxScope<T, F>
 where
@@ -69,15 +20,41 @@ where
     fn drop(&mut self) {
         // SAFETY: created from a Box in the constructor, so dereference-able.
         let this = unsafe { self.0.as_ref() };
-        // SAFETY: we MUST release the `RefMut` before calling drop on the `Box` otherwise we'll call its
+        // SAFETY: we MUST release the future before calling drop on the `Box` otherwise we'll call its
         // destructor after releasing its backing memory, causing uaf
         {
-            let mut fut = this.active_fut.borrow_mut();
-            // unwrap: fut was set in open
-            let fut = fut.as_mut().unwrap();
-            unsafe { ManuallyDrop::drop(fut) };
+            let fut = unsafe { this.active_fut.get().as_mut() }.unwrap();
+            // SAFETY: a call to `RawScope::open` happened
+            unsafe { fut.assume_init_drop() };
         }
         unsafe { drop(Box::from_raw(self.0.as_ptr())) }
+    }
+}
+
+impl<T> BoxScope<T, NoFuture>
+where
+    T: for<'a> Family<'a>,
+{
+    /// Ties the passed scope to the heap.
+    ///
+    /// This function erased the `Future` generic type of the [`TopScope`], at the cost
+    /// of using a dynamic function call to poll the future.
+    ///
+    /// If the `Future` generic type can be inferred, it can be more efficient to use [`BoxScope::new_typed`].
+    ///
+    /// # Panics
+    ///
+    /// - If `scope` panics.
+    pub fn new_erased<S: TopScope<Family = T>>(scope: S) -> BoxScope<T, NoFuture> {
+        let raw_scope = Box::new(RawScope::new());
+        let raw_scope = Box::leak(raw_scope).into();
+
+        // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
+        unsafe { RawScope::open_erased(raw_scope, scope) }
+
+        // SAFETY: open was called as part of `BoxScope::new`
+        let erased_raw_scope = unsafe { RawScope::erase(raw_scope) };
+        BoxScope(erased_raw_scope)
     }
 }
 
@@ -86,17 +63,25 @@ where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
-    /// Creates a new scope from a producer.
+    /// Ties the passed scope to the heap.
+    ///
+    /// This function retains the `Future` generic type from the [`TopScope`].
+    /// To store the [`BoxScope`] in a struct, it can be easier to use [`BoxScope::new_erased`].
     ///
     /// # Panics
     ///
-    /// - If `producer` panics.
-    pub fn new<S: TopScope<Family = T, Future = F>>(scope: S) -> BoxScope<T, F>
+    /// - If `scope` panics.
+    pub fn new_typed<S: TopScope<Family = T, Future = F>>(scope: S) -> BoxScope<T, F>
     where
         S: TopScope<Family = T>,
     {
-        let closed_scope = ClosedBoxScope::new();
-        closed_scope.open(scope)
+        let raw_scope = Box::new(RawScope::new());
+        let raw_scope = Box::leak(raw_scope).into();
+
+        // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
+        unsafe { RawScope::open(raw_scope, scope) }
+
+        BoxScope(raw_scope)
     }
 
     /// Enters the scope, making it possible to access the data frozen inside of the scope.
