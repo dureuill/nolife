@@ -114,6 +114,24 @@ mod test {
     }
 
     #[test]
+    fn panicking_producer() {
+        assert!(matches!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                BoxScope::<SingleFamily<u32>, _>::new_typed(unsafe {
+                    crate::scope::new_scope(|_time_capsule| {
+                        panic!("panicking producer");
+                        #[allow(unreachable_code)]
+                        async {
+                            loop {}
+                        }
+                    })
+                })
+            })),
+            Err(_)
+        ));
+    }
+
+    #[test]
     fn panicking_future_after_once() {
         let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({
             let mut x = 0u32;
