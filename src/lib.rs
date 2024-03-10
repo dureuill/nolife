@@ -11,7 +11,6 @@
 mod box_scope;
 #[cfg(not(miri))]
 pub mod counterexamples;
-mod nofuture;
 mod raw_scope;
 pub mod scope;
 #[doc(hidden)]

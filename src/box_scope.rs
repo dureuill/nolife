@@ -1,37 +1,44 @@
-use std::future::Future;
+use std::{
+    future::Future,
+    mem::{self, MaybeUninit},
+    ptr::NonNull,
+};
 
-use crate::{nofuture::NoFuture, raw_scope::RawScope, Family, Never, TopScope};
+use crate::{raw_scope::RawScope, Family, Never, TopScope};
 
 /// A dynamic scope tied to a Box.
 ///
 /// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
 #[repr(transparent)]
-pub struct BoxScope<T, F = NoFuture>(std::ptr::NonNull<RawScope<T, F>>)
+pub struct BoxScope<T, F: ?Sized = dyn Future<Output = Never> + 'static>(
+    std::ptr::NonNull<RawScope<T, F>>,
+)
 where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>;
 
-impl<T, F> Drop for BoxScope<T, F>
+impl<T, F: ?Sized> Drop for BoxScope<T, F>
 where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>,
 {
     fn drop(&mut self) {
-        // SAFETY: created from a Box in the constructor, so dereference-able.
-        let this = unsafe { self.0.as_ref() };
-        // SAFETY: we MUST release the future before calling drop on the `Box` otherwise we'll call its
-        // destructor after releasing its backing memory, causing uaf
-        {
-            let fut = unsafe { this.active_fut.get().as_mut() }.unwrap();
-            // SAFETY: a call to `RawScope::open` happened
-            unsafe { fut.assume_init_drop() };
-        }
-        unsafe { drop(Box::from_raw(self.0.as_ptr())) }
+        // SAFETY: this `Box::from_raw` pairs with a `Box::into_raw`
+        // in the `new_typed` constructor. The type `F` is not the same,
+        // but `MaybeUninit<F>` and `F` are repr(transparent)-compatible
+        // and RawScope is repr(C), so the Box frees the same memory.
+        // Furthermore, the `new_typed` constructor ensured that F is properly
+        // initialized so it may be dropped.
+        //
+        // Finally, the drop order of implicitly first dropping self.0.state
+        // and THEN self.0.active_fut goes a bit against the typical self-referencing
+        // structs assumptions, however self.0.state is a pointer and has no drop glue.
+        drop(unsafe { Box::from_raw(self.0.as_ptr()) })
     }
 }
 
-impl<T> BoxScope<T, NoFuture>
+impl<T> BoxScope<T>
 where
     T: for<'a> Family<'a>,
 {
@@ -45,19 +52,12 @@ where
     /// # Panics
     ///
     /// - If `scope` panics.
-    pub fn new_erased<S: TopScope<Family = T>>(scope: S) -> BoxScope<T, NoFuture>
+    pub fn new_erased<S: TopScope<Family = T>>(scope: S) -> Self
     where
         S::Future: 'static,
     {
-        let raw_scope = Box::new(RawScope::new());
-        let raw_scope = Box::leak(raw_scope).into();
-
-        // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
-        unsafe { RawScope::open_erased(raw_scope, scope) }
-
-        // SAFETY: open was called as part of `BoxScope::new`
-        let erased_raw_scope = unsafe { RawScope::erase(raw_scope) };
-        BoxScope(erased_raw_scope)
+        let this = mem::ManuallyDrop::new(BoxScope::new_typed(scope));
+        Self(this.0)
     }
 }
 
@@ -78,15 +78,41 @@ where
     where
         S: TopScope<Family = T>,
     {
-        let raw_scope = Box::new(RawScope::new());
-        let raw_scope = Box::leak(raw_scope).into();
+        let raw_scope = Box::new(RawScope::<T, F>::new_uninit());
+        let raw_scope: *mut RawScope<T, MaybeUninit<F>> = Box::into_raw(raw_scope);
+        struct Guard<Sc> {
+            raw_scope: *mut Sc,
+        }
+        // guard ensures Box is freed on panic (i.e. if scope.run panics)
+        let panic_guard = Guard { raw_scope };
+        impl<Sc> Drop for Guard<Sc> {
+            fn drop(&mut self) {
+                // SAFETY: defuse below makes sure this only happens on panic,
+                // in this case, self.raw_scope is still in the same uninitialized state
+                // and not otherwise being cleaned up, so this `Box::from_raw` pairs with
+                // `Box::into_raw` above
+                drop(unsafe { Box::from_raw(self.raw_scope) })
+            }
+        }
 
-        // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
-        unsafe { RawScope::open(raw_scope, scope) }
+        let raw_scope: *mut RawScope<T, F> = raw_scope.cast();
 
-        BoxScope(raw_scope)
+        unsafe {
+            RawScope::open(raw_scope, scope);
+        }
+
+        mem::forget(panic_guard); // defuse guard
+                                  // (guard field has no drop glue, so this does not leak anything, it just skips the above `Drop` impl)
+
+        BoxScope(unsafe { NonNull::new_unchecked(raw_scope) })
     }
+}
 
+impl<T, F: ?Sized> BoxScope<T, F>
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never>,
+{
     /// Enters the scope, making it possible to access the data frozen inside of the scope.
     ///
     /// # Panics
