@@ -1,7 +1,6 @@
 //! Declares `NoFuture`, a handrolled type-erased `Future` that uses similar tricks as `anyhow::Error`.
 
 use std::{
-    alloc::Layout,
     future::Future,
     mem::ManuallyDrop,
     ptr::NonNull,
@@ -13,21 +12,11 @@ use crate::Never;
 // SAFETY: repr C to ensure that field layout stays as declared.
 #[repr(C)]
 pub struct NoFuture<F = Erased> {
-    // SAFETY:
-    // - must be the first item of the struct so we can read a pointer to the struct as a pointer to the vtable.
-    metadata: Metadata,
-
-    marker: std::marker::PhantomPinned,
+    vtable: &'static FutureVTable,
     // SAFETY:
     // - last item of the struct so that vtable doesn't move when cast
     // - Manually dropped to make sure we don't drop the _object twice if the outer struct is dropped before being erased.
     _object: ManuallyDrop<F>,
-}
-
-#[derive(Clone, Copy)]
-struct Metadata {
-    vtable: &'static FutureVTable,
-    outer_layout: Layout,
 }
 
 struct FutureVTable {
@@ -35,17 +24,14 @@ struct FutureVTable {
     future_poll: for<'a, 'b> unsafe fn(NonNull<NoFuture>, &'a mut Context<'b>) -> Poll<Never>,
 }
 
-impl<F> NoFuture<F>
-where
-    F: Future,
-{
+impl<ErasedOrF> NoFuture<ErasedOrF> {
     /// Erase the future.
     ///
     /// This boils down to a pointer cast, that is always safe to do.
     ///
     /// For the result of the cast to actually be soundly dereferenceable, however, the usual
     /// conditions apply
-    pub fn erase(this: NonNull<NoFuture<F>>) -> NonNull<NoFuture<Erased>> {
+    pub fn erase(this: NonNull<NoFuture<ErasedOrF>>) -> NonNull<NoFuture<Erased>> {
         this.cast()
     }
 }
@@ -61,17 +47,13 @@ where
 {
     /// Builds a not-yet erased but eraseable future from a future.
     // SAFETY: the only way to build a NoFuture is to start from a future.
-    pub fn new(future: F, outer_layout: Layout) -> NoFuture<F> {
+    pub fn new(future: F) -> NoFuture<F> {
         let vtable = &FutureVTable {
             object_drop: object_drop::<F>,
             future_poll: future_poll::<F>,
         };
         NoFuture {
-            metadata: Metadata {
-                vtable,
-                outer_layout,
-            },
-            marker: std::marker::PhantomPinned,
+            vtable,
             _object: ManuallyDrop::new(future),
         }
     }
@@ -81,20 +63,31 @@ where
     }
 }
 
-// Reads the vtable out of `p`. This is the same as `p.as_ref().vtable`, but
-// avoids converting `p` into a reference.
-unsafe fn vtable(p: NonNull<NoFuture<Erased>>) -> &'static FutureVTable {
-    // NOTE: This assumes that `FutureVTable` is the first field of NoFuture.
-    let metadata: Metadata = unsafe { *(p.as_ptr() as *const Metadata) };
-    metadata.vtable
+impl Future for NoFuture<Erased> {
+    type Output = Never;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let future_poll = self.vtable.future_poll;
+        let this = NonNull::from(self.get_mut());
+        unsafe { future_poll(this, cx) }
+    }
 }
 
-// Reads the vtable out of `p`. This is the same as `p.as_ref().vtable`, but
-// avoids converting `p` into a reference.
-unsafe fn outer_layout(p: NonNull<NoFuture<Erased>>) -> Layout {
-    // NOTE: This assumes that `FutureVTable` is the first field of NoFuture.
-    let metadata: Metadata = unsafe { *(p.as_ptr() as *const Metadata) };
-    metadata.outer_layout
+// We really would prefer to implement drop only on NoFuture<Erased>, but Rust won't let us "specialize" Drop.
+impl<ErasedOrF> Drop for NoFuture<ErasedOrF> {
+    fn drop(&mut self) {
+        let object_drop = self.vtable.object_drop;
+
+        let this = NonNull::from(self);
+
+        let definitely_erased = NoFuture::erase(this);
+
+        // SAFETY:
+        // 1. Ensured by the module don't letting you building erased futures from scratch.
+        // 2. Only called in Drop implementation, then the object is forgotten.
+        //    The future was marked as `ManuallyDrop` in the case `ErasedOrF == F`.
+        unsafe { object_drop(definitely_erased) };
+    }
 }
 
 /// # Safety
@@ -131,53 +124,3 @@ unsafe fn future_poll<F: Future<Output = Never> + 'static>(
 }
 
 pub struct Erased;
-
-pub trait RawFuture {
-    type Output;
-
-    unsafe fn poll(this: NonNull<Self>, cx: &mut Context<'_>) -> Poll<Self::Output>;
-
-    unsafe fn drop_future(this: NonNull<Self>);
-
-    unsafe fn dealloc_outer<T>(this: NonNull<Self>, outer: *mut T);
-}
-
-impl RawFuture for NoFuture<Erased> {
-    type Output = Never;
-
-    unsafe fn poll(this: NonNull<Self>, cx: &mut Context<'_>) -> Poll<Never> {
-        let vtable = vtable(this);
-        (vtable.future_poll)(this, cx)
-    }
-
-    unsafe fn drop_future(this: NonNull<Self>) {
-        let vtable = vtable(this);
-        (vtable.object_drop)(this)
-    }
-
-    unsafe fn dealloc_outer<T>(this: NonNull<Self>, outer: *mut T) {
-        let outer_layout = outer_layout(this);
-        std::alloc::dealloc(outer as *mut _, outer_layout)
-    }
-}
-
-impl<F> RawFuture for F
-where
-    F: Future,
-{
-    type Output = F::Output;
-
-    unsafe fn poll(mut this: NonNull<Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = this.as_mut();
-        let pinned = std::pin::Pin::new_unchecked(this);
-        pinned.poll(cx)
-    }
-
-    unsafe fn drop_future(this: NonNull<Self>) {
-        std::ptr::drop_in_place(this.as_ptr())
-    }
-
-    unsafe fn dealloc_outer<T>(_this: NonNull<Self>, outer: *mut T) {
-        drop(Box::from_raw(outer))
-    }
-}
