@@ -1,10 +1,13 @@
-use crate::{nofuture::NoFuture, waker, Family, Never, TopScope};
+use crate::{
+    nofuture::{NoFuture, RawFuture},
+    waker, Family, Never, TopScope,
+};
 use std::{
+    alloc::Layout,
     cell::{Cell, UnsafeCell},
     future::Future,
     marker::PhantomData,
     mem::MaybeUninit,
-    pin::Pin,
     ptr::NonNull,
     task::Poll,
 };
@@ -146,7 +149,13 @@ where
         let fut = unsafe { scope.run(time_capsule) };
         active_fut.write(fut);
     }
+}
 
+impl<T, F> RawScope<T, F>
+where
+    T: for<'a> Family<'a>,
+    F: RawFuture<Output = Never>,
+{
     /// # Safety
     ///
     /// 1. The `this` parameter is *dereference-able*.
@@ -158,20 +167,21 @@ where
         G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
         // SAFETY: `this` is dereference-able as per precondition (1)
-        let this = unsafe { this.as_ref() };
-
         // SAFETY: RawScope is !Sync + the reference is released by the end of the function.
-        let fut = this.active_fut.get().as_mut().unwrap();
+        let raw_this = this.as_ptr();
+
+        let fut: *const UnsafeCell<MaybeUninit<F>> = std::ptr::addr_of!((*raw_this).active_fut);
+        let fut: *mut F = UnsafeCell::raw_get(fut).cast();
+
         // SAFETY: per precondition (2)
-        let fut = fut.assume_init_mut();
-        // SAFETY: per precondition (3)
-        let fut = unsafe { Pin::new_unchecked(fut) };
+        let fut = NonNull::new_unchecked(fut);
         // SAFETY: we didn't do anything particular here before calling `poll`, which may panic, so
         // we have nothing to handle.
-        match fut.poll(&mut std::task::Context::from_waker(&waker::create())) {
+        match RawFuture::poll(fut, &mut std::task::Context::from_waker(&waker::create())) {
             Poll::Ready(_) => unreachable!(),
             Poll::Pending => {}
         }
+        let this = unsafe { this.as_ref() };
         let state = this.state.0.get();
         // SAFETY: cast the lifetime of the Family to `'borrow`.
         // This is safe to do
@@ -213,6 +223,7 @@ where
 {
     pub(crate) unsafe fn open_erased<S: TopScope<Family = T, Future = F>>(
         this: NonNull<Self>,
+        outer_layout: Layout,
         scope: S,
     ) {
         // SAFETY: `this` is dereference-able as per precondition (1)
@@ -226,7 +237,7 @@ where
         let time_capsule = TimeCapsule { state };
         // SAFETY: called run from the executor
         let fut = unsafe { scope.run(time_capsule) };
-        active_fut.write(NoFuture::new(fut));
+        active_fut.write(NoFuture::new(fut, outer_layout));
     }
 }
 

@@ -1,6 +1,10 @@
-use std::future::Future;
+use std::{alloc::Layout, cell::UnsafeCell, future::Future, ptr::NonNull};
 
-use crate::{nofuture::NoFuture, raw_scope::RawScope, Family, Never, TopScope};
+use crate::{
+    nofuture::{NoFuture, RawFuture},
+    raw_scope::RawScope,
+    Family, Never, TopScope,
+};
 
 /// A dynamic scope tied to a Box.
 ///
@@ -10,24 +14,30 @@ use crate::{nofuture::NoFuture, raw_scope::RawScope, Family, Never, TopScope};
 pub struct BoxScope<T, F = NoFuture>(std::ptr::NonNull<RawScope<T, F>>)
 where
     T: for<'a> Family<'a>,
-    F: Future<Output = Never>;
+    F: RawFuture<Output = Never>;
 
 impl<T, F> Drop for BoxScope<T, F>
 where
     T: for<'a> Family<'a>,
-    F: Future<Output = Never>,
+    F: RawFuture<Output = Never>,
 {
     fn drop(&mut self) {
         // SAFETY: created from a Box in the constructor, so dereference-able.
-        let this = unsafe { self.0.as_ref() };
+        let this = self.0.as_ptr();
         // SAFETY: we MUST release the future before calling drop on the `Box` otherwise we'll call its
         // destructor after releasing its backing memory, causing uaf
         {
-            let fut = unsafe { this.active_fut.get().as_mut() }.unwrap();
+            let fut = unsafe { std::ptr::addr_of!((*this).active_fut) };
+            let fut = UnsafeCell::raw_get(fut);
+            let fut: *mut F = fut.cast();
+            let fut = NonNull::new(fut).unwrap();
             // SAFETY: a call to `RawScope::open` happened
-            unsafe { fut.assume_init_drop() };
+            unsafe {
+                RawFuture::drop_future(fut);
+                let this = self.0.as_ptr();
+                RawFuture::dealloc_outer(fut, this);
+            }
         }
-        unsafe { drop(Box::from_raw(self.0.as_ptr())) }
     }
 }
 
@@ -49,11 +59,16 @@ where
     where
         S::Future: 'static,
     {
-        let raw_scope = Box::new(RawScope::new());
-        let raw_scope = Box::leak(raw_scope).into();
+        let outer_layout = Layout::new::<RawScope<T, NoFuture<S::Future>>>();
+        let raw_scope = NonNull::new(
+            unsafe { std::alloc::alloc(outer_layout) } as *mut RawScope<T, NoFuture<S::Future>>
+        )
+        .unwrap();
+
+        unsafe { raw_scope.as_ptr().write(RawScope::new()) };
 
         // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
-        unsafe { RawScope::open_erased(raw_scope, scope) }
+        unsafe { RawScope::open_erased(raw_scope, outer_layout, scope) }
 
         // SAFETY: open was called as part of `BoxScope::new`
         let erased_raw_scope = unsafe { RawScope::erase(raw_scope) };
@@ -86,7 +101,13 @@ where
 
         BoxScope(raw_scope)
     }
+}
 
+impl<T, F> BoxScope<T, F>
+where
+    T: for<'a> Family<'a>,
+    F: RawFuture<Output = Never>,
+{
     /// Enters the scope, making it possible to access the data frozen inside of the scope.
     ///
     /// # Panics
