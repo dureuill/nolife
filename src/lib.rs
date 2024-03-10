@@ -94,41 +94,37 @@ mod test {
         assert_eq!(scope.enter(|x| *x + 42), 145);
     }
 
-    #[test]
-    fn panicking_future() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({ panic!() }));
-
+    fn must_panic<F, R>(f: F)
+    where
+        F: FnOnce() -> R,
+    {
         assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scope.enter(|x| println!("{x}"))
-            })),
-            Err(_)
-        ));
-
-        assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scope.enter(|x| println!("{x}"))
-            })),
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)),
             Err(_)
         ));
     }
 
     #[test]
     fn panicking_producer() {
-        assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                BoxScope::<SingleFamily<u32>, _>::new_typed(unsafe {
-                    crate::scope::new_scope(|_time_capsule| {
-                        panic!("panicking producer");
-                        #[allow(unreachable_code)]
-                        async {
-                            loop {}
-                        }
-                    })
+        must_panic(|| {
+            BoxScope::<SingleFamily<u32>, _>::new_typed(unsafe {
+                crate::scope::new_scope(|_time_capsule| {
+                    panic!("panicking producer");
+                    #[allow(unreachable_code)]
+                    async {
+                        loop {}
+                    }
                 })
-            })),
-            Err(_)
-        ));
+            })
+        });
+    }
+
+    #[test]
+    fn panicking_future() {
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({ panic!() }));
+
+        must_panic(|| scope.enter(|x| println!("{x}")));
+        must_panic(|| scope.enter(|x| println!("{x}")));
     }
 
     #[test]
@@ -141,19 +137,8 @@ mod test {
 
         scope.enter(|x| println!("{x}"));
 
-        assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scope.enter(|x| println!("{x}"))
-            })),
-            Err(_)
-        ));
-
-        assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scope.enter(|x| println!("{x}"))
-            })),
-            Err(_)
-        ))
+        must_panic(|| scope.enter(|x| println!("{x}")));
+        must_panic(|| scope.enter(|x| println!("{x}")));
     }
 
     #[test]
@@ -168,12 +153,7 @@ mod test {
 
         scope.enter(|x| assert_eq!(*x, 0));
 
-        assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scope.enter(|_| panic!())
-            })),
-            Err(_)
-        ));
+        must_panic(|| scope.enter(|_| panic!()));
 
         // '1' skipped due to panic
         scope.enter(|x| assert_eq!(*x, 2));
@@ -214,11 +194,6 @@ mod test {
 
         scope.enter(|x| assert_eq!(*x, 40));
 
-        assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scope.enter(|x| assert_eq!(*x, 42))
-            })),
-            Err(_)
-        ));
+        must_panic(|| scope.enter(|x| assert_eq!(*x, 42)));
     }
 }
