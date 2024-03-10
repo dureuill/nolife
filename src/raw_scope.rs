@@ -148,7 +148,7 @@ where
         F: Future<Output = Never>,
         S: TopScope<Family = T>,
     {
-        let RawScopeFields { state, active_fut } = Self::fields(this);
+        let RawScopeFields { state, active_fut } = unsafe { Self::fields(this) };
 
         let time_capsule = TimeCapsule { state };
 
@@ -171,7 +171,7 @@ where
     where
         G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
-        let RawScopeFields { state, active_fut } = Self::fields(this.as_ptr());
+        let RawScopeFields { state, active_fut } = unsafe { Self::fields(this.as_ptr()) };
 
         let active_fut: Pin<&mut F> = unsafe { Pin::new_unchecked(&mut *active_fut) };
 
@@ -180,10 +180,12 @@ where
             Poll::Pending => {}
         }
 
-        let mut_ref = state
-            .read()
-            .expect("The scope's future did not fill the value")
-            .as_mut();
+        let mut_ref = unsafe {
+            state
+                .read()
+                .expect("The scope's future did not fill the value")
+                .as_mut()
+        };
 
         f(mut_ref)
     }

@@ -1,5 +1,7 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 #![warn(missing_docs)]
+#![deny(elided_lifetimes_in_paths)]
+#![deny(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![doc(
     html_favicon_url = "https://raw.githubusercontent.com/dureuill/nolife/main/assets/nolife-tr.png?raw=true"
