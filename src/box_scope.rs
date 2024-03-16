@@ -126,9 +126,9 @@ where
     /// - If the passed function panics.
     /// - If the underlying future panics.
     /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
-    pub fn enter<'borrow, Output: 'borrow, G>(&'borrow mut self, f: G) -> Output
+    pub fn enter<'borrow, Output, G>(&'borrow mut self, f: G) -> Output
     where
-        G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
+        G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
     {
         // SAFETY:
         // 1. `self.0` is valid as a post-condition of `new_typed`.

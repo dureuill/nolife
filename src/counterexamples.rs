@@ -41,7 +41,7 @@
 //!
 //! ## Covariant escapes to outer
 //!
-//! ```compile_fail,E0521
+//! ```compile_fail,E0597
 //! use nolife::{scope, BoxScope, Family};
 //! use std::cell::Cell;
 //!
@@ -259,6 +259,53 @@
 //!             }
 //!         }
 //!         scope.enter(|_f| ());
+//!     }
+//! }
+//! ```
+//!
+//! # Signature of `enter` is not sound, #7 <https://github.com/dureuill/nolife/issues/7>
+//!
+//! Example lifted as-is from [@steffahn](https://github.com/steffahn)
+//!
+//! ```compile_fail,E0597,E0499
+//! use nolife::{BoxScope, Family, TimeCapsule, scope};
+//!
+//! struct Foo<'a> {
+//!     s: String,
+//!     r: Option<&'a mut String>,
+//! }
+//!
+//! struct FooFamily;
+//!
+//! impl<'a> Family<'a> for FooFamily {
+//!    type Family = Foo<'a>;
+//! }
+//!
+//! fn storing_own_reference() {
+//!     {
+//!         let mut scope: BoxScope<FooFamily, _> = BoxScope::new_typed(scope!({
+//!             let mut f = Foo {
+//!                 s: String::from("Hello World!"),
+//!                 r: None,
+//!             };
+//!             freeze_forever!(&mut f)
+//!         }));
+//!
+//!         scope.enter(|foo| {
+//!             foo.r = Some(&mut foo.s);
+//!         });
+//!         scope.enter(|foo| {
+//!             let alias1: &mut String = &mut foo.s;
+//!             let alias2: &mut String = foo.r.as_deref_mut().unwrap(); // miri will complain here already
+//!             // two aliasing mutable references!!
+//!
+//!             let s: &str = alias1;
+//!             let owner: String = std::mem::take(alias2);
+//!
+//!             println!("Now it exists: {s}");
+//!             drop(owner);
+//!             println!("Now it's gone: {s}");
+//!         })
 //!     }
 //! }
 //! ```
