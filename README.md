@@ -32,22 +32,25 @@ impl<'a> nolife::Family<'a> for MyParsedDataFamily {
     // you generally want to replace all lifetimes in the struct with the one of the trait.
 }
 
-// 2. Define an async function that setups the data and its borrowed representation:
-async fn my_scope(mut time_capsule: nolife::TimeCapsule<MyParsedDataFamily /* 👈 use the helper type we declared */>,
-                  data_source: Vec<u8> /* 👈 all parameters that allow to build a `MyData` */)
--> nolife::Never /* 👈 will be returned from loop */ {
-   let mut data = MyData(data_source);
-   let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
-   time_capsule.freeze_forever(&mut parsed_data).await // gives access to the parsed data to the outside.
-                             /* 👆 reference to the borrowed data */
+// 2. Define a function that setups the data and its borrowed representation:
+fn my_scope(
+    data_source: Vec<u8>, // 👈 all parameters that allow to build a `MyData`
+) -> impl nolife::TopScope<Family = MyParsedDataFamily> // 👈 use the helper type we declared
+{
+    nolife::scope!({
+        let mut data = MyData(data_source);
+        let mut parsed_data = MyParsedData(&mut data); // imagine that this step is costly...
+        freeze_forever!(&mut parsed_data) // gives access to the parsed data to the outside.
+                       /* 👆 reference to the borrowed data */
+    })
 }
 
 // 3. Open a `BoxScope` using the previously written async function:
-let mut scope = nolife::DynBoxScope::pin(|time_capsule| my_scope(time_capsule, vec![0, 1, 2]));
+let mut scope = nolife::BoxScope::<MyParsedDataFamily>::new_erased(my_scope(vec![0, 1, 2]));
 
 // 4. Store the `BoxScope` anywhere you want
 struct ContainsScope {
-    scope: nolife::DynBoxScope<MyParsedDataFamily>
+    scope: nolife::BoxScope<MyParsedDataFamily>,
     /* other data */
 }
 
@@ -64,12 +67,6 @@ This crate only provide a single kind of scope at the moment
 |[`BoxScope`]|1 (size of the contained Future + 1 pointer to the reference type)|Yes|No|
 
 An `RcScope` or `MutexScope` could be future extensions
-
-# Inner async support
-
-At the moment, although the functions passed to [`BoxScope::new`] are asynchronous, they should not `await` futures other than the [`FrozenFuture`]. Attempting to do so **will result in a panic** if the future does not resolve immediately.
-
-Future versions of this crate could provide async version of [`BoxScope::enter`] to handle the asynchronous use case.
 
 # License
 
