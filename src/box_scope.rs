@@ -97,6 +97,9 @@ where
 
         let raw_scope: *mut RawScope<T, F> = raw_scope.cast();
 
+        // SAFETY:
+        // 1. `raw_scope` allocated by the `Box` so is valid memory.
+        // 2. TODO
         unsafe {
             RawScope::open(raw_scope, scope);
         }
@@ -104,6 +107,7 @@ where
         mem::forget(panic_guard); // defuse guard
                                   // (guard field has no drop glue, so this does not leak anything, it just skips the above `Drop` impl)
 
+        // SAFETY: `raw_scope` allocated by the `Box` so is non-null.
         BoxScope(unsafe { NonNull::new_unchecked(raw_scope) })
     }
 }
@@ -124,7 +128,11 @@ where
     where
         G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
-        // SAFETY: `self.0` is dereference-able due to coming from a `Box`.
+        // SAFETY:
+        // 1. `self.0` is dereference-able due to coming from a `Box`.
+        // 2. The object pointed to by `self.0` did not move and won't before deallocation.
+        // 3. `BoxScope::enter` takes an exclusive reference.
+        // 4. TODO
         unsafe { RawScope::enter(self.0, f) }
     }
 }

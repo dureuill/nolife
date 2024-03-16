@@ -141,17 +141,22 @@ where
 {
     /// # Safety
     ///
-    /// TODO docs
+    /// 1. `this` is dereferenceable
+    /// 2. TODO: any precondition on `this` for RawScope::fields is satisfied.
     pub(crate) unsafe fn open<S: TopScope<Family = T, Future = F>>(this: *mut Self, scope: S)
     where
         T: for<'a> Family<'a>,
         F: Future<Output = Never>,
         S: TopScope<Family = T>,
     {
+        // SAFETY: precondition (2)
         let RawScopeFields { state, active_fut } = unsafe { Self::fields(this) };
 
         let time_capsule = TimeCapsule { state };
 
+        // SAFETY:
+        // - precondition (1)
+        // - using `scope.run` from the executor.
         unsafe {
             active_fut.write(scope.run(time_capsule));
         }
@@ -165,14 +170,19 @@ where
 {
     /// # Safety
     ///
-    /// TODO docs
+    /// 1. `this` is dereferenceable
+    /// 2. `this` verifies the guarantees of `Pin` (one of its fields is pinned in this function)
+    /// 3. No other exclusive reference to the frozen value. In particular, no concurrent calls to this function.
+    /// 4. TODO: any precondition on `this` for RawScope::fields is satisfied.
     #[allow(unused_unsafe)]
     pub(crate) unsafe fn enter<'borrow, Output: 'borrow, G>(this: NonNull<Self>, f: G) -> Output
     where
         G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
+        // SAFETY: precondition (4)
         let RawScopeFields { state, active_fut } = unsafe { Self::fields(this.as_ptr()) };
 
+        // SAFETY: precondition (2)
         let active_fut: Pin<&mut F> = unsafe { Pin::new_unchecked(&mut *active_fut) };
 
         match active_fut.poll(&mut std::task::Context::from_waker(&waker::create())) {
@@ -180,6 +190,12 @@ where
             Poll::Pending => {}
         }
 
+        // SAFETY:
+        // - dereferenceable: precondition (1)
+        // - drop: reading a reference (no drop glue)
+        // - aliasing: precondition (3) + `mut_ref` cannot escape this function via `f`
+        // - lifetime: the value is still live due to the precondition on `Scope::run`,
+        //   preventing <https://github.com/dureuill/nolife/issues/8>
         let mut_ref = unsafe {
             state
                 .read()
@@ -201,6 +217,9 @@ where
         mut self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
     ) -> Poll<Self::Output> {
+        // SAFETY:
+        // - state was set to a valid value in [`TimeCapsule::freeze`]
+        // - the value is still 'live', due to the lifetime in `FrozenFuture`
         let state: &mut State<T> = unsafe { &mut *self.state };
         if state.is_none() {
             let mut_ref = self
