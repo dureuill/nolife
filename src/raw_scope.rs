@@ -126,9 +126,15 @@ impl<T, F: ?Sized> RawScope<T, F>
 where
     T: for<'a> Family<'a>,
 {
+    /// SAFETY:
+    ///
+    /// 1. `this` points to an allocation that can hold a `RawScope<T, F>`,
+    ///    not necessarily initialized or properly aligned.
     unsafe fn fields(this: *mut Self) -> RawScopeFields<T, F> {
         RawScopeFields {
+            // SAFETY: precondition (1)
             state: unsafe { addr_of_mut!((*this).state) },
+            // SAFETY: precondition (1)
             active_fut: unsafe { addr_of_mut!((*this).active_fut) },
         }
     }
@@ -141,22 +147,26 @@ where
 {
     /// # Safety
     ///
-    /// 1. `this` is dereferenceable
-    /// 2. TODO: any precondition on `this` for RawScope::fields is satisfied.
+    /// 1. `this` points to a properly aligned allocation that can hold a `RawScope<T, F>`, where `active_fut` is not necessarily initialized.
+    /// 2. `this.state` is initialized.
+    ///
+    /// # Post-condition
+    ///
+    /// 1. `this.active_fut` is fully initialized
     pub(crate) unsafe fn open<S: TopScope<Family = T, Future = F>>(this: *mut Self, scope: S)
     where
         T: for<'a> Family<'a>,
         F: Future<Output = Never>,
         S: TopScope<Family = T>,
     {
-        // SAFETY: precondition (2)
+        // SAFETY: precondition (1)
         let RawScopeFields { state, active_fut } = unsafe { Self::fields(this) };
 
         let time_capsule = TimeCapsule { state };
 
         // SAFETY:
         // - precondition (1)
-        // - using `scope.run` from the executor.
+        // - using `scope.run` from the executor
         unsafe {
             active_fut.write(scope.run(time_capsule));
         }
@@ -170,16 +180,15 @@ where
 {
     /// # Safety
     ///
-    /// 1. `this` is dereferenceable
+    /// 1. `this` points to a properly aligned, fully initialized `RawScope<T, F>`.
     /// 2. `this` verifies the guarantees of `Pin` (one of its fields is pinned in this function)
     /// 3. No other exclusive reference to the frozen value. In particular, no concurrent calls to this function.
-    /// 4. TODO: any precondition on `this` for RawScope::fields is satisfied.
     #[allow(unused_unsafe)]
     pub(crate) unsafe fn enter<'borrow, Output: 'borrow, G>(this: NonNull<Self>, f: G) -> Output
     where
         G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
-        // SAFETY: precondition (4)
+        // SAFETY: precondition (1)
         let RawScopeFields { state, active_fut } = unsafe { Self::fields(this.as_ptr()) };
 
         // SAFETY: precondition (2)

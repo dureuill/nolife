@@ -98,8 +98,10 @@ where
         let raw_scope: *mut RawScope<T, F> = raw_scope.cast();
 
         // SAFETY:
-        // 1. `raw_scope` allocated by the `Box` so is valid memory.
-        // 2. TODO
+        // 1. `raw_scope` allocated by the `Box` so is valid memory, although the future is not yet initialized
+        // 2. `raw_scope` was created from a valid `RawScope::<T, MaybeUninit<F>>`, so `state` is fully initialized.
+        //
+        // Note: as a post-condition of `RawScope`, `raw_scope` is fully initialized.
         unsafe {
             RawScope::open(raw_scope, scope);
         }
@@ -129,10 +131,9 @@ where
         G: for<'a> FnOnce(&'a mut <T as Family<'a>>::Family) -> Output,
     {
         // SAFETY:
-        // 1. `self.0` is dereference-able due to coming from a `Box`.
+        // 1. `self.0` is valid as a post-condition of `new_typed`.
         // 2. The object pointed to by `self.0` did not move and won't before deallocation.
-        // 3. `BoxScope::enter` takes an exclusive reference.
-        // 4. TODO
+        // 3. `BoxScope::enter` takes an exclusive reference and the reference passed to `f` cannot escape `f`.
         unsafe { RawScope::enter(self.0, f) }
     }
 }
