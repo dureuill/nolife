@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.4.0
+
+- Breaking changes:
+  - `BoxScope::new` now accepts a `Scope` object that is unsafe to construct directly.
+    Safe use of `nolife` now requires using the `scope!({})` macro.
+    This is to fix a [soundness issue](https://github.com/dureuill/nolife/issues/8) that can occur when
+    a `FrozenFuture` is polled directly, without giving back control to nolife's executor.
+    The macros ensure that a frozen future is always immediately awaited.
+    To update your usages, replace:
+  ```rust
+  let scope = BoxScope::new(|time_capsule| async { time_capsule.freeze_forever(&mut some_ref()).await });
+  ```
+
+  with:
+  ```rust
+  let scope = BoxScope::new(scope!({ freeze_forever!(&mut some_ref()) }));
+  ```
+
+  Check the [documentation](https://docs.rs/nolife/0.4.0/nolife/macro.scope.html) of the `scope!` macro for details.
+  - The lifetime of the `Family` type passed to the closure in `BoxScope::enter` changed to fix a [soundness issue](https://github.com/dureuill/nolife/issues/7).
+  - Removed `DynBoxScope`, use `BoxScope::new_dyn` instead.
+
+- Improvement: dynamic scope no longer boxes the future, as it is already behind a level of indirection in a `BoxScope`.
+
+Thanks to [@steffahn](https://github.com/steffahn) for opening the above issues and helping fix them ❤️
+
 ## v0.3.3
 
 - Fix documentation links
