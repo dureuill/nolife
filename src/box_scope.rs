@@ -25,10 +25,10 @@ where
 {
     fn drop(&mut self) {
         // SAFETY: this `Box::from_raw` pairs with a `Box::into_raw`
-        // in the `new_typed` constructor. The type `F` is not the same,
+        // in the `new` constructor. The type `F` is not the same,
         // but `MaybeUninit<F>` and `F` are repr(transparent)-compatible
         // and RawScope is repr(C), so the Box frees the same memory.
-        // Furthermore, the `new_typed` constructor ensured that F is properly
+        // Furthermore, the `new` constructor ensured that F is properly
         // initialized so it may be dropped.
         //
         // Finally, the drop order of implicitly first dropping self.0.state
@@ -47,16 +47,16 @@ where
     /// This function erased the `Future` generic type of the [`TopScope`], at the cost
     /// of using a dynamic function call to poll the future.
     ///
-    /// If the `Future` generic type can be inferred, it can be more efficient to use [`BoxScope::new_typed`].
+    /// If the `Future` generic type can be inferred, it can be more efficient to use [`BoxScope::new`].
     ///
     /// # Panics
     ///
     /// - If `scope` panics.
-    pub fn new_erased<S: TopScope<Family = T>>(scope: S) -> Self
+    pub fn new_dyn<S: TopScope<Family = T>>(scope: S) -> Self
     where
         S::Future: 'static,
     {
-        let this = mem::ManuallyDrop::new(BoxScope::new_typed(scope));
+        let this = mem::ManuallyDrop::new(BoxScope::new(scope));
         Self(this.0)
     }
 }
@@ -69,12 +69,12 @@ where
     /// Ties the passed scope to the heap.
     ///
     /// This function retains the `Future` generic type from the [`TopScope`].
-    /// To store the [`BoxScope`] in a struct, it can be easier to use [`BoxScope::new_erased`].
+    /// To store the [`BoxScope`] in a struct, it can be easier to use [`BoxScope::new_dyn`].
     ///
     /// # Panics
     ///
     /// - If `scope` panics.
-    pub fn new_typed<S: TopScope<Family = T, Future = F>>(scope: S) -> BoxScope<T, F>
+    pub fn new<S: TopScope<Family = T, Future = F>>(scope: S) -> BoxScope<T, F>
     where
         S: TopScope<Family = T>,
     {
@@ -131,7 +131,7 @@ where
         G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
     {
         // SAFETY:
-        // 1. `self.0` is valid as a post-condition of `new_typed`.
+        // 1. `self.0` is valid as a post-condition of `new`.
         // 2. The object pointed to by `self.0` did not move and won't before deallocation.
         // 3. `BoxScope::enter` takes an exclusive reference and the reference passed to `f` cannot escape `f`.
         unsafe { RawScope::enter(self.0, f) }
