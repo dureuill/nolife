@@ -31,7 +31,7 @@ use std::marker::PhantomData;
 ///
 /// Since this enum has no variant, a value of this type can never actually exist.
 /// This type is similar to [`std::convert::Infallible`] and used as a technicality to ensure that
-/// functions passed to [`BoxScope::new_erased`] never return.
+/// functions passed to [`BoxScope::new_dyn`] never return.
 ///
 /// ## Future compatibility
 ///
@@ -65,7 +65,7 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -81,7 +81,7 @@ mod test {
 
     #[test]
     fn produce_output_erased() {
-        let mut scope = BoxScope::<SingleFamily<u32>>::new_erased(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>>::new_dyn(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -108,7 +108,7 @@ mod test {
     #[test]
     fn panicking_producer() {
         must_panic(|| {
-            BoxScope::<SingleFamily<u32>, _>::new_typed(unsafe {
+            BoxScope::<SingleFamily<u32>, _>::new(unsafe {
                 crate::scope::new_scope(|_time_capsule| {
                     panic!("panicking producer");
                     #[allow(unreachable_code)]
@@ -122,7 +122,7 @@ mod test {
 
     #[test]
     fn panicking_future() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({ panic!() }));
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({ panic!() }));
 
         must_panic(|| scope.enter(|x| println!("{x}")));
         must_panic(|| scope.enter(|x| println!("{x}")));
@@ -130,7 +130,7 @@ mod test {
 
     #[test]
     fn panicking_future_after_once() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             freeze!(&mut x);
             panic!()
@@ -144,7 +144,7 @@ mod test {
 
     #[test]
     fn panicking_enter() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new_typed(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -168,14 +168,14 @@ mod test {
             scope!({ freeze_forever!(&mut s.len()) })
         }
         let x = "Intel the Beagle".to_string();
-        let mut scope = BoxScope::<SingleFamily<usize>, _>::new_typed(scope_with_ref(&x));
+        let mut scope = BoxScope::<SingleFamily<usize>, _>::new(scope_with_ref(&x));
 
         scope.enter(|x| assert_eq!(*x, 16));
     }
 
     #[test]
     fn awaiting_in_scope_ready() {
-        let mut scope = BoxScope::<SingleFamily<u32>>::new_erased(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>>::new_dyn(scope!({
             freeze!(&mut 40);
             std::future::ready(()).await;
             freeze_forever!(&mut 42)
@@ -187,7 +187,7 @@ mod test {
 
     #[test]
     fn awaiting_in_scope_panics() {
-        let mut scope = BoxScope::<SingleFamily<u32>>::new_erased(scope!({
+        let mut scope = BoxScope::<SingleFamily<u32>>::new_dyn(scope!({
             freeze!(&mut 40);
             let () = std::future::pending().await;
             freeze_forever!(&mut 42)

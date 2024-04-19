@@ -46,7 +46,7 @@ fn my_scope(
 }
 
 // 3. Open a `BoxScope` using the previously written async function:
-let mut scope = nolife::BoxScope::<MyParsedDataFamily>::new_erased(my_scope(vec![0, 1, 2]));
+let mut scope = nolife::BoxScope::<MyParsedDataFamily>::new_dyn(my_scope(vec![0, 1, 2]));
 
 // 4. Store the `BoxScope` anywhere you want
 struct ContainsScope {

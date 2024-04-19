@@ -21,7 +21,7 @@
 //!
 //! fn covariant_inner() {
 //!     {
-//!         let mut scope = BoxScope::<CovariantFamily, _>::new_typed(scope!({
+//!         let mut scope = BoxScope::<CovariantFamily, _>::new(scope!({
 //!             let mut f = Covariant { x: "bbb" };
 //!             loop {
 //!                 freeze!(&mut f);
@@ -58,7 +58,7 @@
 //! fn covariant_outer() {
 //!     let output = Cell::new("foo");
 //!     {
-//!         let mut scope = BoxScope::<CovariantFamily>::new_erased(scope!({
+//!         let mut scope = BoxScope::<CovariantFamily>::new_dyn(scope!({
 //!             let mut f = Covariant { x: "bbb" };
 //!             loop {
 //!                 freeze!(&mut f);
@@ -93,7 +93,7 @@
 //!
 //! fn box_covariant_inner() {
 //!     {
-//!         let mut scope = BoxScope::<CovariantFamily, _>::new_typed(scope!({
+//!         let mut scope = BoxScope::<CovariantFamily, _>::new(scope!({
 //!             let x = String::from("aaaaa");
 //!             let mut f = Covariant { x: &x };
 //!             loop {
@@ -129,7 +129,7 @@
 //! fn box_covariant_outer() {
 //!     let outer = Cell::new("foo");
 //!     {
-//!         let mut scope = BoxScope::<CovariantFamily, _>::new_typed(scope!({
+//!         let mut scope = BoxScope::<CovariantFamily, _>::new(scope!({
 //!             let x = String::from("aaaaa");
 //!             let mut f = Covariant { x: &x };
 //!             loop {
@@ -167,7 +167,7 @@
 //!
 //! fn covariant_drop() {
 //!     {
-//!         let mut scope = BoxScope::<CovariantDropFamily, _>::new_typed(scope!({
+//!         let mut scope = BoxScope::<CovariantDropFamily, _>::new(scope!({
 //!             let mut f = CovariantDrop { x: "inner" };
 //!             loop {
 //!                 println!("Called {}", f.x);
@@ -205,7 +205,7 @@
 //!     let outer: Cell<&str> = Cell::new("toto");
 //!
 //!     {
-//!         let mut scope = nolife::BoxScope::<ContravariantFamily, _>::new_typed(nolife::scope!({
+//!         let mut scope = nolife::BoxScope::<ContravariantFamily, _>::new(nolife::scope!({
 //!             loop {
 //!                 let mut x = String::from("inner");
 //!
@@ -242,7 +242,7 @@
 //!
 //! fn covariant_inner() {
 //!     {
-//!         let mut scope = BoxScope::<CovariantFamily>::new_erased(scope!({
+//!         let mut scope = BoxScope::<CovariantFamily>::new_dyn(scope!({
 //!             let mut f = Covariant { x: "bbb" };
 //!             loop {
 //!                 freeze!(&mut f);
@@ -283,7 +283,7 @@
 //!
 //! fn storing_own_reference() {
 //!     {
-//!         let mut scope: BoxScope<FooFamily, _> = BoxScope::new_typed(scope!({
+//!         let mut scope: BoxScope<FooFamily, _> = BoxScope::new(scope!({
 //!             let mut f = Foo {
 //!                 s: String::from("Hello World!"),
 //!                 r: None,
@@ -359,7 +359,7 @@
 //!         scope!({ freeze_forever!(&mut s.len()) })
 //!     }
 //!     let x = "Intel the Beagle".to_string();
-//!     let mut scope = BoxScope::<SingleFamily<usize>, _>::new_typed(scope_with_ref(&x));
+//!     let mut scope = BoxScope::<SingleFamily<usize>, _>::new(scope_with_ref(&x));
 //!
 //!     drop(x);
 //!
@@ -379,7 +379,7 @@
 //!         scope!({ freeze_forever!(&mut s.len()) })
 //!     }
 //!     let x = "Intel the Beagle".to_string();
-//!     let mut scope = BoxScope::<SingleFamily<usize>, _>::new_erased(scope_with_ref(&x));
+//!     let mut scope = BoxScope::<SingleFamily<usize>, _>::new_dyn(scope_with_ref(&x));
 //!
 //!     drop(x);
 //!

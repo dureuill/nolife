@@ -154,7 +154,7 @@ where
 ///     scope!({ freeze_forever!(&mut s.len()) })
 /// }
 /// let x = "Intel the Beagle".to_string();
-/// let mut scope = BoxScope::<SingleFamily<usize>, _>::new_typed(scope_with_ref(&x));
+/// let mut scope = BoxScope::<SingleFamily<usize>, _>::new(scope_with_ref(&x));
 ///
 /// scope.enter(|x| assert_eq!(*x, 16));
 /// ```
