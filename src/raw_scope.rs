@@ -1,5 +1,5 @@
 use crate::{waker, Family, Never, TopScope};
-use std::{
+use core::{
     future::Future,
     marker::PhantomData,
     mem::MaybeUninit,
@@ -194,7 +194,7 @@ where
         // SAFETY: precondition (2)
         let active_fut: Pin<&mut F> = unsafe { Pin::new_unchecked(&mut *active_fut) };
 
-        match active_fut.poll(&mut std::task::Context::from_waker(&waker::create())) {
+        match active_fut.poll(&mut core::task::Context::from_waker(&waker::create())) {
             Poll::Ready(never) => match never {},
             Poll::Pending => {}
         }
@@ -223,8 +223,8 @@ where
     type Output = ();
 
     fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        mut self: core::pin::Pin<&mut Self>,
+        _cx: &mut core::task::Context<'_>,
     ) -> Poll<Self::Output> {
         // SAFETY:
         // - state was set to a valid value in [`TimeCapsule::freeze`]

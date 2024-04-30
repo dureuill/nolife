@@ -9,6 +9,8 @@
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/dureuill/nolife/main/assets/nolife-tr.png?raw=true"
 )]
+#![cfg_attr(not(feature = "std"), no_std)]
+extern crate alloc;
 
 mod box_scope;
 #[cfg(not(miri))]
@@ -25,7 +27,7 @@ pub use box_scope::BoxScope;
 pub use scope::Scope;
 pub use scope::TopScope;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 /// A type for functions that never return.
 ///
@@ -95,17 +97,19 @@ mod test {
         assert_eq!(scope.enter(|x| *x + 42), 145);
     }
 
+    #[cfg(feature = "std")]
     fn must_panic<F, R>(f: F)
     where
         F: FnOnce() -> R,
     {
         assert!(matches!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)),
+            std::panic::catch_unwind(core::panic::AssertUnwindSafe(f)),
             Err(_)
         ));
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn panicking_producer() {
         must_panic(|| {
             BoxScope::<SingleFamily<u32>, _>::new(unsafe {
@@ -121,6 +125,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn panicking_future() {
         let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({ panic!() }));
 
@@ -129,6 +134,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn panicking_future_after_once() {
         let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
@@ -143,6 +149,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn panicking_enter() {
         let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
@@ -162,6 +169,8 @@ mod test {
 
     #[test]
     fn ref_scope() {
+        use alloc::string::ToString;
+
         fn scope_with_ref<'scope, 'a: 'scope>(
             s: &'a str,
         ) -> impl TopScope<Family = SingleFamily<usize>> + 'scope {
@@ -177,7 +186,7 @@ mod test {
     fn awaiting_in_scope_ready() {
         let mut scope = BoxScope::<SingleFamily<u32>>::new_dyn(scope!({
             freeze!(&mut 40);
-            std::future::ready(()).await;
+            core::future::ready(()).await;
             freeze_forever!(&mut 42)
         }));
 
@@ -186,10 +195,11 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn awaiting_in_scope_panics() {
         let mut scope = BoxScope::<SingleFamily<u32>>::new_dyn(scope!({
             freeze!(&mut 40);
-            let () = std::future::pending().await;
+            let () = core::future::pending().await;
             freeze_forever!(&mut 42)
         }));
 

@@ -1,4 +1,5 @@
-use std::{
+use alloc::boxed::Box;
+use core::{
     future::Future,
     mem::{self, MaybeUninit},
     ptr::NonNull,
@@ -12,7 +13,7 @@ use crate::{raw_scope::RawScope, Family, Never, TopScope};
 /// In exchange, it is fully `'static` and can be moved after creation.
 #[repr(transparent)]
 pub struct BoxScope<T, F: ?Sized = dyn Future<Output = Never> + 'static>(
-    std::ptr::NonNull<RawScope<T, F>>,
+    core::ptr::NonNull<RawScope<T, F>>,
 )
 where
     T: for<'a> Family<'a>,

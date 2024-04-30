@@ -1,5 +1,5 @@
 //! Defines a generic `Scope` as a trait that can be instantiated as a [`crate::BoxScope`].
-use std::{future::Future, marker::PhantomData};
+use core::{future::Future, marker::PhantomData};
 
 use crate::{Family, Never, TimeCapsule};
 
@@ -12,7 +12,7 @@ impl<P, Family, Future, Output> Sealed for Wrapper<P, Family, Future, Output>
 where
     P: FnOnce(super::TimeCapsule<Family>) -> Future,
     Family: for<'a> crate::Family<'a>,
-    Future: std::future::Future<Output = Output>,
+    Future: core::future::Future<Output = Output>,
 {
 }
 
@@ -52,13 +52,13 @@ struct Wrapper<P, Family, Future, Output>(P, PhantomData<*const Family>)
 where
     P: FnOnce(TimeCapsule<Family>) -> Future,
     Family: for<'a> crate::Family<'a>,
-    Future: std::future::Future<Output = Output>;
+    Future: core::future::Future<Output = Output>;
 
 impl<P, Family, Future, Output> Scope for Wrapper<P, Family, Future, Output>
 where
     P: FnOnce(TimeCapsule<Family>) -> Future,
     Family: for<'a> crate::Family<'a>,
-    Future: std::future::Future<Output = Output>,
+    Future: core::future::Future<Output = Output>,
 {
     type Family = Family;
     type Output = Output;
@@ -85,7 +85,7 @@ pub unsafe fn new_scope<P, Family, Future, Output>(
 where
     P: FnOnce(TimeCapsule<Family>) -> Future,
     Family: for<'a> crate::Family<'a>,
-    Future: std::future::Future<Output = Output>,
+    Future: core::future::Future<Output = Output>,
 {
     Wrapper(producer, PhantomData)
 }
@@ -111,7 +111,6 @@ where
 /// and in particular for error handling.
 /// ```
 /// use nolife::{BoxScope, Scope, SingleFamily, TopScope, scope};
-///
 ///
 /// fn outer_scope(
 ///     input_data: Vec<impl std::io::Read>,
