@@ -157,7 +157,6 @@ where
     where
         T: for<'a> Family<'a>,
         F: Future<Output = Never>,
-        S: TopScope<Family = T>,
     {
         // SAFETY: precondition (1)
         let RawScopeFields { state, active_fut } = unsafe { Self::fields(this) };

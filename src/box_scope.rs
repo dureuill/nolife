@@ -75,10 +75,7 @@ where
     /// # Panics
     ///
     /// - If `scope` panics.
-    pub fn new<S: TopScope<Family = T, Future = F>>(scope: S) -> BoxScope<T, F>
-    where
-        S: TopScope<Family = T>,
-    {
+    pub fn new<S: TopScope<Family = T, Future = F>>(scope: S) -> BoxScope<T, F> {
         let raw_scope = Box::new(RawScope::<T, F>::new_uninit());
         let raw_scope: *mut RawScope<T, MaybeUninit<F>> = Box::into_raw(raw_scope);
         struct Guard<Sc> {
