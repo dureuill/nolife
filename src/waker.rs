@@ -1,4 +1,4 @@
-use std::task::{RawWaker, RawWakerVTable, Waker};
+use core::task::{RawWaker, RawWakerVTable, Waker};
 
 pub fn create() -> Waker {
     // Safety: The waker points to a vtable with functions that do nothing. Doing
@@ -6,7 +6,7 @@ pub fn create() -> Waker {
     unsafe { Waker::from_raw(RAW_WAKER) }
 }
 
-const RAW_WAKER: RawWaker = RawWaker::new(std::ptr::null(), &VTABLE);
+const RAW_WAKER: RawWaker = RawWaker::new(core::ptr::null(), &VTABLE);
 const VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
 
 unsafe fn clone(_: *const ()) -> RawWaker {

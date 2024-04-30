@@ -8,6 +8,9 @@ repository = "https://github.com/dureuill/nolife"
 documentation = "https://docs.rs/nolife"
 readme = "README.md"
 keywords = ["ownership", "self-referential", "lifetime", "borrowing"]
-categories = ["rust-patterns"]
+categories = ["rust-patterns", "no-std"]
+
+[features]
+std = []
 
 [dependencies]
