@@ -11,6 +11,7 @@ keywords = ["ownership", "self-referential", "lifetime", "borrowing"]
 categories = ["rust-patterns", "no-std"]
 
 [features]
+default = ["std"]
 std = []
 
 [dependencies]
