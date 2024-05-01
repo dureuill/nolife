@@ -58,6 +58,18 @@ struct ContainsScope {
 scope.enter(|parsed_data| { /* do what you need with the parsed data */ });
 ```
 
+# Features
+
+This crate exposes the following Cargo features:
+
+- `std` (default): enable std support and disable `no_std` support.
+  - This feature exists so that disabling it allows an explicit opt-in into [the `no_std` attribute](https://doc.rust-lang.org/reference/names/preludes.html#the-no_std-attribute).
+  - Currently `nolife` does not expose additional APIs available only to the `std` feature, so this feature only exists for backward compatibility at this point.
+  - The `std` feature is enabled by default so that future APIs depending on that feature are available by default
+  - To disable and opt-in into `no_std`, [add `nolife` to your dependencies using `default-features = false`](https://doc.rust-lang.org/cargo/reference/features.html#dependency-features).
+  - `nolife` requires [the `alloc` crate](https://doc.rust-lang.org/alloc/).
+
+
 # Kinds of scopes
 
 This crate only provide a single kind of scope at the moment
