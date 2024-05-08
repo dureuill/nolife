@@ -12,7 +12,7 @@ use crate::{raw_scope::RawScope, Family, Never, TopScope};
 /// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
 #[repr(transparent)]
-pub struct BoxScope<T, F: ?Sized = dyn Future<Output = Never> + 'static>(
+pub struct BoxScope<T, F: ?Sized = dyn Future<Output = Never> + Send + Sync + 'static>(
     core::ptr::NonNull<RawScope<T, F>>,
 )
 where
@@ -55,7 +55,7 @@ where
     /// - If `scope` panics.
     pub fn new_dyn<S: TopScope<Family = T>>(scope: S) -> Self
     where
-        S::Future: 'static,
+        S::Future: Send + Sync + 'static,
     {
         let this = mem::ManuallyDrop::new(BoxScope::new(scope));
         Self(this.0)
@@ -134,4 +134,29 @@ where
         // 3. `BoxScope::enter` takes an exclusive reference and the reference passed to `f` cannot escape `f`.
         unsafe { RawScope::enter(self.0, f) }
     }
+}
+
+// SAFETY:
+//
+// - No operation can be performed on a `&BoxScope`, so it is trivially `Sync`
+// - For future API compatibility, we require `T::Family` and `F` to be `Sync`.
+unsafe impl<T, F> Sync for BoxScope<T, F>
+where
+    T: for<'a> Family<'a>,
+    for<'a> <T as Family<'a>>::Family: Sync,
+    F: Future<Output = Never> + ?Sized + Sync,
+{
+}
+
+// SAFETY:
+//
+// - `BoxScope` has owning semantic on its inner `RawScope`, so `BoxScope` is `Send`
+// if and only if its inner `RawScope` is safe.
+// - this boils down to `T::Family` and `F` being `Send`.
+unsafe impl<T, F> Send for BoxScope<T, F>
+where
+    T: for<'a> Family<'a>,
+    for<'a> <T as Family<'a>>::Family: Send,
+    F: Future<Output = Never> + ?Sized + Send,
+{
 }

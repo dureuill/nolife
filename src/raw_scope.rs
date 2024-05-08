@@ -90,6 +90,48 @@ where
 // `<T as Family<'static>>::Family>` has T invariant already anyway.
 pub(crate) type State<T> = Option<NonNull<<T as Family<'static>>::Family>>;
 
+// SAFETY:
+//
+// 1. `T::Family` can be sent between threads
+// 2. As `TimeCapsule` is `Copy`, its `T::Family` *may* actually be accessed unsynchronized
+// between threads. That it is not the case is a soundness precondition, verified if using the
+// `scope!` macro.
+//
+// Note: required for `F` to be `Send`
+unsafe impl<T> Send for TimeCapsule<T>
+where
+    T: for<'a> Family<'a>,
+    for<'a> <T as Family<'a>>::Family: Send,
+{
+}
+
+// SAFETY:
+//
+// - Trivial as no operation can be performed on a `&TimeCapsule`
+// Note: required for `F` to be `Sync`
+unsafe impl<T> Sync for TimeCapsule<T> where T: for<'a> Family<'a> {}
+
+// SAFETY:
+//
+// 1. `T::Family` can be sent between threads
+// 2. `FrozenFuture` does provide unsynchronized write access to a shared resource, so a
+// soundness precondition is that it cannot actually be accessed unsynchronized from multiple threads.
+// Using the `scope!` macro, it is always verified.
+//
+// Note: required for `F` to be `Send`
+unsafe impl<'a, 'b, T> Send for FrozenFuture<'a, 'b, T>
+where
+    T: for<'c> Family<'c>,
+    for<'c> <T as Family<'c>>::Family: Send,
+{
+}
+
+// SAFETY:
+//
+// - Trivial as no operation can be performed on a `&FrozenFuture`
+// Note: required for `F` to be `Sync`
+unsafe impl<'a, 'b, T> Sync for FrozenFuture<'a, 'b, T> where T: for<'c> Family<'c> {}
+
 /// Underlying representation of a scope.
 // SAFETY: repr C to ensure conversion between RawScope<T, MaybeUninit<F>> and RawScope<T, F>
 // does not rely on unstable memory layout.
