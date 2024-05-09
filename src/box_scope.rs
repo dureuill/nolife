@@ -50,12 +50,43 @@ where
     ///
     /// If the `Future` generic type can be inferred, it can be more efficient to use [`BoxScope::new`].
     ///
+    /// This function requires that the passed `Future` is [`Send`] and [`Sync`]. If it is not the case,
+    /// use [`BoxScope::new_local_dyn`].
+    ///
     /// # Panics
     ///
     /// - If `scope` panics.
     pub fn new_dyn<S: TopScope<Family = T>>(scope: S) -> Self
     where
         S::Future: Send + Sync + 'static,
+    {
+        let this = mem::ManuallyDrop::new(BoxScope::new(scope));
+        Self(this.0)
+    }
+}
+
+impl<T> BoxScope<T, dyn Future<Output = Never>>
+where
+    T: for<'a> Family<'a>,
+{
+    /// Ties the passed scope to the heap.
+    ///
+    /// This function erased the `Future` generic type of the [`TopScope`], at the cost
+    /// of using a dynamic function call to poll the future.
+    ///
+    /// If the `Future` generic type can be inferred, it can be more efficient to use [`BoxScope::new`].
+    ///
+    /// Further, this function erased the thread-safety-ness of the underlying future type.
+    /// Unless your `Future` is not [`Send`] or not [`Sync`], prefer [`BoxScope::new_dyn`].
+    ///
+    /// The `BoxScope` resulting from calling this function will also not be [`Send`] or [`Sync`].
+    ///
+    /// # Panics
+    ///
+    /// - If `scope` panics.
+    pub fn new_local_dyn<S: TopScope<Family = T>>(scope: S) -> Self
+    where
+        S::Future: 'static,
     {
         let this = mem::ManuallyDrop::new(BoxScope::new(scope));
         Self(this.0)
