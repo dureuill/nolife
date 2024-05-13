@@ -349,7 +349,7 @@
 //!
 //! # Dropping a borrowed input to a scope.
 //!
-//! ```compile_fail,E505
+//! ```compile_fail,E0505
 //! use nolife::{scope, BoxScope, SingleFamily, TopScope};
 //!
 //! fn ref_scope() {
@@ -369,13 +369,13 @@
 //!
 //! # Dropping a borrowed input to a scope, erased version
 //!
-//! ```compile_fail,E597,E505
+//! ```compile_fail,E0597,E0505
 //! use nolife::{scope, BoxScope, SingleFamily, TopScope};
 //!
 //! fn ref_scope() {
 //!     fn scope_with_ref<'scope, 'a: 'scope>(
 //!         s: &'a str,
-//!     ) -> impl TopScope<Family = SingleFamily<usize>> + 'scope {
+//!     ) -> impl TopScope<Family = SingleFamily<usize>, Future = impl Send + Sync + 'a> + 'scope {
 //!         scope!({ freeze_forever!(&mut s.len()) })
 //!     }
 //!     let x = "Intel the Beagle".to_string();
@@ -385,4 +385,101 @@
 //!
 //!     scope.enter(|x| assert_eq!(*x, 16));
 //! }
+//! ```
+//!
+//! # Trying to Send with a non-Send Future
+//!
+//! ```compile_fail
+//! let mut scope = nolife::BoxScope::<nolife::SingleFamily<u32>, _>::new(nolife::scope!({
+//!     let rc = std::rc::Rc::new(42);
+//!     let mut x = 0u32;
+//!     loop {
+//!         freeze!(&mut x);
+//!
+//!         x += 1;
+//!     }
+//! }));
+//!
+//! std::thread::scope(|t_scope| {
+//!     t_scope.spawn(|| {
+//!         assert_eq!(scope.enter(|x| *x + 42), 42);
+//!         assert_eq!(scope.enter(|x| *x + 42), 43);
+//!         scope.enter(|x| *x += 100);
+//!         assert_eq!(scope.enter(|x| *x + 42), 145);
+//!     });
+//! })
+//! ```
+//!
+//! # Trying to Send with a non-send Family
+//!
+//! ```compile_fail,E0277
+//! let rc = std::rc::Rc::new(42);
+//! let rc_clone = rc.clone();
+//! let mut scope = nolife::BoxScope::<nolife::SingleFamily<std::rc::Rc<u32>>, _>::new(nolife::scope!({
+//!     freeze_forever!(&mut rc_clone)
+//! }));
+//!
+//! std::thread::scope(|t_scope| {
+//!     t_scope.spawn(|| {
+//!         scope.enter(|_| {});
+//!     });
+//! })
+//! ```
+//!
+//! # Trying to send the time capsule or frozenfuture
+//!
+//! ```compile_fail,E0728
+//! let mut scope = nolife::BoxScope::<nolife::SingleFamily<u32>, _>::new(nolife::scope!({
+//!     let rc = std::rc::Rc::new(42);
+//!     let mut x = 0u32;
+//!     loop {
+//!         std::thread::scope(|t_scope| {
+//!             t_scope.spawn(|| {
+//!                 freeze!(&mut x);
+//!             });
+//!         });
+//!         x += 1;
+//!     }
+//! }));
+//!
+//! assert_eq!(scope.enter(|x| *x + 42), 42);
+//! assert_eq!(scope.enter(|x| *x + 42), 43);
+//! scope.enter(|x| *x += 100);
+//! assert_eq!(scope.enter(|x| *x + 42), 145);
+//! ```
+//!
+//! # Trying to sync with a non-sync family
+//!
+//! ```compile_fail,E0277
+//! let rc = std::rc::Rc::new(42);
+//! let rc_clone = rc.clone();
+//! let scope = nolife::BoxScope::<nolife::SingleFamily<std::rc::Rc<u32>>, _>::new(nolife::scope!({
+//!     freeze_forever!(&mut rc_clone)
+//! }));
+//!
+//!
+//! let scope_ref = &scope;
+//!
+//! std::thread::scope(|t_scope| {
+//!     t_scope.spawn(|| scope_ref);
+//! })
+//! ```
+//!
+//! # Trying to sync with a non-sync future
+//!
+//! ```compile_fail
+//! let scope = nolife::BoxScope::<nolife::SingleFamily<u32>, _>::new(nolife::scope!({
+//!     let rc = std::rc::Rc::new(42);
+//!     let mut x = 0u32;
+//!     loop {
+//!         freeze!(&mut x);
+//!
+//!         x += 1;
+//!     }
+//! }));
+//!
+//! let scope_ref = &scope;
+//! std::thread::scope(|t_scope| {
+//!     t_scope.spawn(|| scope_ref);
+//! })
 //! ```
