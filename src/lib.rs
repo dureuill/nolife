@@ -207,4 +207,80 @@ mod test {
 
         must_panic(|| scope.enter(|x| assert_eq!(*x, 42)));
     }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn send_in_thread() {
+        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+            let mut x = 0u32;
+            loop {
+                freeze!(&mut x);
+
+                x += 1;
+            }
+        }));
+
+        std::thread::scope(|t_scope| {
+            t_scope.spawn(|| {
+                assert_eq!(scope.enter(|x| *x + 42), 42);
+                assert_eq!(scope.enter(|x| *x + 42), 43);
+                scope.enter(|x| *x += 100);
+                assert_eq!(scope.enter(|x| *x + 42), 145);
+            });
+        })
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn sync_in_thread() {
+        let scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+            let mut x = 0u32;
+            loop {
+                freeze!(&mut x);
+                x += 1;
+            }
+        }));
+
+        let scope_ref = &scope;
+
+        std::thread::scope(|t_scope| {
+            t_scope.spawn(|| scope_ref);
+        })
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn non_sync_family_in_thread() {
+        let rc = std::rc::Rc::new(42);
+        let mut rc_clone = rc.clone();
+        let scope: BoxScope<_, _> = BoxScope::<SingleFamily<std::rc::Rc<u32>>, _>::new(scope!({
+            freeze_forever!(&mut rc_clone)
+        }));
+
+        let scope_ref = &scope;
+
+        std::thread::scope(|t_scope| {
+            t_scope.spawn(|| scope_ref);
+        })
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn non_sync_fut_in_thread() {
+        let rc = std::rc::Rc::new(42);
+        let rc_cloned = rc.clone();
+        let scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+            loop {
+                let rc = rc_cloned.clone();
+                let mut rc_ref = *rc;
+
+                freeze!(&mut rc_ref);
+            }
+        }));
+
+        let scope_ref = &scope;
+        std::thread::scope(|t_scope| {
+            t_scope.spawn(|| scope_ref);
+        })
+    }
 }

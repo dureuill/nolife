@@ -35,7 +35,7 @@ impl<'a> nolife::Family<'a> for MyParsedDataFamily {
 // 2. Define a function that setups the data and its borrowed representation:
 fn my_scope(
     data_source: Vec<u8>, // 👈 all parameters that allow to build a `MyData`
-) -> impl nolife::TopScope<Family = MyParsedDataFamily> // 👈 use the helper type we declared
+) -> impl nolife::TopScope<Family = MyParsedDataFamily, Future = impl Send + Sync> // 👈 use the helper type we declared
 {
     nolife::scope!({
         let mut data = MyData(data_source);
