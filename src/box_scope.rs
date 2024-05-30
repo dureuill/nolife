@@ -12,7 +12,7 @@ use crate::{raw_scope::RawScope, Family, Never, TopScope};
 /// This kind of scopes uses a dynamic allocation.
 /// In exchange, it is fully `'static` and can be moved after creation.
 #[repr(transparent)]
-pub struct BoxScope<T, F: ?Sized = dyn Future<Output = Never> + Send + Sync + 'static>(
+pub struct BoxScope<T, F: ?Sized = dyn Future<Output = Never> + Send + 'static>(
     core::ptr::NonNull<RawScope<T, F>>,
 )
 where
@@ -58,7 +58,7 @@ where
     /// - If `scope` panics.
     pub fn new_dyn<S: TopScope<Family = T>>(scope: S) -> Self
     where
-        S::Future: Send + Sync + 'static,
+        S::Future: Send + 'static,
     {
         let this = mem::ManuallyDrop::new(BoxScope::new(scope));
         Self(this.0)
