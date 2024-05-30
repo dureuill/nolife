@@ -170,12 +170,11 @@ where
 // SAFETY:
 //
 // - No operation can be performed on a `&BoxScope`, so it is trivially `Sync`
-// - For future API compatibility, we require `T::Family` and `F` to be `Sync`.
+// - Operations that require a `&BoxScope` may require that the Family or Future be Sync as well.
 unsafe impl<T, F> Sync for BoxScope<T, F>
 where
     T: for<'a> Family<'a>,
-    for<'a> <T as Family<'a>>::Family: Sync,
-    F: Future<Output = Never> + ?Sized + Sync,
+    F: Future<Output = Never> + ?Sized,
 {
 }
 
@@ -183,11 +182,11 @@ where
 //
 // - `BoxScope` has owning semantic on its inner `RawScope`, so `BoxScope` is `Send`
 // if and only if its inner `RawScope` is safe.
-// - this boils down to `T::Family` and `F` being `Send`.
+//
+// Meanwhile `RawScope` is `Send` if its `F` is `Send`.
 unsafe impl<T, F> Send for BoxScope<T, F>
 where
     T: for<'a> Family<'a>,
-    for<'a> <T as Family<'a>>::Family: Send,
     F: Future<Output = Never> + ?Sized + Send,
 {
 }

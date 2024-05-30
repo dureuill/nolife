@@ -247,4 +247,40 @@ mod test {
             t_scope.spawn(|| scope_ref);
         })
     }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn non_sync_family_in_thread() {
+        let rc = std::rc::Rc::new(42);
+        let mut rc_clone = rc.clone();
+        let scope: BoxScope<_, _> = BoxScope::<SingleFamily<std::rc::Rc<u32>>, _>::new(scope!({
+            freeze_forever!(&mut rc_clone)
+        }));
+
+        let scope_ref = &scope;
+
+        std::thread::scope(|t_scope| {
+            t_scope.spawn(|| scope_ref);
+        })
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn non_sync_fut_in_thread() {
+        let rc = std::rc::Rc::new(42);
+        let rc_cloned = rc.clone();
+        let scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+            loop {
+                let rc = rc_cloned.clone();
+                let mut rc_ref = *rc;
+
+                freeze!(&mut rc_ref);
+            }
+        }));
+
+        let scope_ref = &scope;
+        std::thread::scope(|t_scope| {
+            t_scope.spawn(|| scope_ref);
+        })
+    }
 }

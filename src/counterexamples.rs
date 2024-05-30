@@ -412,7 +412,7 @@
 //!
 //! # Trying to Send with a non-send Family
 //!
-//! ```compile_fail,E0277
+//! ```compile_fail
 //! let rc = std::rc::Rc::new(42);
 //! let rc_clone = rc.clone();
 //! let mut scope = nolife::BoxScope::<nolife::SingleFamily<std::rc::Rc<u32>>, _>::new(nolife::scope!({
@@ -448,38 +448,3 @@
 //! assert_eq!(scope.enter(|x| *x + 42), 145);
 //! ```
 //!
-//! # Trying to sync with a non-sync family
-//!
-//! ```compile_fail,E0277
-//! let rc = std::rc::Rc::new(42);
-//! let rc_clone = rc.clone();
-//! let scope = nolife::BoxScope::<nolife::SingleFamily<std::rc::Rc<u32>>, _>::new(nolife::scope!({
-//!     freeze_forever!(&mut rc_clone)
-//! }));
-//!
-//!
-//! let scope_ref = &scope;
-//!
-//! std::thread::scope(|t_scope| {
-//!     t_scope.spawn(|| scope_ref);
-//! })
-//! ```
-//!
-//! # Trying to sync with a non-sync future
-//!
-//! ```compile_fail
-//! let scope = nolife::BoxScope::<nolife::SingleFamily<u32>, _>::new(nolife::scope!({
-//!     let rc = std::rc::Rc::new(42);
-//!     let mut x = 0u32;
-//!     loop {
-//!         freeze!(&mut x);
-//!
-//!         x += 1;
-//!     }
-//! }));
-//!
-//! let scope_ref = &scope;
-//! std::thread::scope(|t_scope| {
-//!     t_scope.spawn(|| scope_ref);
-//! })
-//! ```
