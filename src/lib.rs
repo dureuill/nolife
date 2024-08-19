@@ -23,7 +23,7 @@ pub use raw_scope::{FrozenFuture, TimeCapsule};
 /// [genawaiter](https://lib.rs/crates/genawaiter).
 mod waker;
 
-pub use box_scope::BoxScope;
+pub use box_scope::{BoxScope, OpenBoxScope};
 pub use scope::Scope;
 pub use scope::TopScope;
 

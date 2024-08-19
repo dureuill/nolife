@@ -19,6 +19,59 @@ where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>;
 
+/// A dynamic scope tied to a Box that is guaranteed to be open.
+///
+/// Being open, a value can be accessed by calling [`Self::get`] or [`Self::get_mut`].
+///
+/// To move to the next value, call [`Self::advance`].
+///
+/// Lastly, [`Self::advance`] and [`Self::get_mut`] can be combined as [`Self::next`].
+///
+/// This kind of scopes uses a dynamic allocation.
+/// In exchange, it is fully `'static` and can be moved after creation.
+pub struct OpenBoxScope<T, F: ?Sized = dyn Future<Output = Never> + Send + 'static>(BoxScope<T, F>)
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never>;
+
+pub struct IterMut<'borrow, T, F, G, Output>(&'borrow mut BoxScope<T, F>, G)
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never> + ?Sized,
+    G: for<'a> FnMut(&'borrow mut <T as Family<'a>>::Family) -> Output;
+
+impl<'borrow, T, F, G, Output> Iterator for IterMut<'borrow, T, F, G, Output>
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never> + ?Sized,
+    G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output,
+{
+    type Item = Output;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.0.enter(&mut self.1))
+    }
+}
+
+pub struct IntoIter<T, F, G, Output>(BoxScope<T, F>, G)
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never> + ?Sized,
+    G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output;
+
+impl<T, F, G, Output> Iterator for IntoIter<T, F, G, Output>
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never> + ?Sized,
+    G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output,
+{
+    type Item = Output;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.0.enter(&mut self.1))
+    }
+}
+
 impl<T, F: ?Sized> Drop for BoxScope<T, F>
 where
     T: for<'a> Family<'a>,
@@ -155,6 +208,7 @@ where
     /// - If the passed function panics.
     /// - If the underlying future panics.
     /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
+    #[doc(alias = "next")]
     pub fn enter<'borrow, Output, G>(&'borrow mut self, f: G) -> Output
     where
         G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
@@ -163,7 +217,167 @@ where
         // 1. `self.0` is valid as a post-condition of `new`.
         // 2. The object pointed to by `self.0` did not move and won't before deallocation.
         // 3. `BoxScope::enter` takes an exclusive reference and the reference passed to `f` cannot escape `f`.
-        unsafe { RawScope::enter(self.0, f) }
+        unsafe {
+            RawScope::advance(self.0);
+            RawScope::get_mut(self.0, f).expect("The scope's future did not fill the value")
+        }
+    }
+
+    /// Whether the scope is currently open or not.
+    pub fn is_open(&self) -> bool {
+        unsafe { RawScope::is_open(self.0) }
+    }
+
+    /// Opens the scope, advancing until a value is available inside of the scope.
+    ///
+    /// If the scope is already open, this method has no effect.
+    ///
+    /// The returned [`OpenBoxScope`] guarantees that a value is available inside of the scope.
+    ///
+    /// # Panics
+    ///
+    /// - If the underlying future panics.
+    /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
+    pub fn open(mut self) -> OpenBoxScope<T, F> {
+        if !self.is_open() {
+            self.advance();
+        }
+        OpenBoxScope(self)
+    }
+
+    /// If the scope is open, accesses its frozen data.
+    ///
+    /// This method can be called multiple times without modifying the frozen data.
+    /// However, it requires that the underlying data and future be `Sync`.
+    ///
+    /// If the scope is closed, then `f` will not be executed and `None` will be returned.
+    pub fn get_if_open<'borrow, Output, G>(&'borrow self, f: G) -> Option<Output>
+    where
+        G: for<'a> FnOnce(&'borrow <T as Family<'a>>::Family) -> Output,
+        F: Sync,
+        for<'a> <T as Family<'a>>::Family: Sync,
+    {
+        unsafe { RawScope::get(self.0, f) }
+    }
+
+    /// If the scope is open, exclusively accesses its frozen data, allowing for mutation of the data.
+    ///
+    /// The frozen data is not modified between two calls of this methods that are not separated by [`Self::advance`].
+    ///
+    /// If the scope is closed, then `f` will not be executed and `None` will be returned.
+    pub fn get_mut_if_open<'borrow, Output, G>(&'borrow mut self, f: G) -> Option<Output>
+    where
+        G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
+    {
+        unsafe { RawScope::get_mut(self.0, f) }
+    }
+
+    /// Returns an infinite iterator that accesses the successive values inside of the scope through the passed closure.
+    pub fn iter_mut<'borrow, Output, G>(
+        &'borrow mut self,
+        f: G,
+    ) -> IterMut<'borrow, T, F, G, Output>
+    where
+        G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output,
+    {
+        if !self.is_open() {
+            self.advance();
+        }
+        IterMut(self, f)
+    }
+
+    /// Returns an infinite iterator that accesses the successive values inside of the scope through the passed closure.
+    pub fn into_iter<Output, G>(mut self, f: G) -> IntoIter<T, F, G, Output>
+    where
+        G: for<'a, 'borrow> FnMut(&'borrow mut <T as Family<'a>>::Family) -> Output,
+    {
+        if !self.is_open() {
+            self.advance();
+        }
+        IntoIter(self, f)
+    }
+
+    /// Advances in the scope until a new value is produced.
+    pub fn advance(&mut self) {
+        unsafe { RawScope::advance(self.0) }
+    }
+}
+
+impl<T, F: ?Sized> OpenBoxScope<T, F>
+where
+    T: for<'a> Family<'a>,
+    F: Future<Output = Never>,
+{
+    /// Accesses the frozen data inside of the scope.
+    ///
+    /// This method can be called multiple times without modifying the frozen data.
+    ///
+    /// However, it requires that the underlying data and future be `Sync`.
+    pub fn get<'borrow, Output, G>(&'borrow self, f: G) -> Output
+    where
+        G: for<'a> FnOnce(&'borrow <T as Family<'a>>::Family) -> Output,
+        F: Sync,
+        for<'a> <T as Family<'a>>::Family: Sync,
+    {
+        self.0.get_if_open(f).expect("scope open by construction")
+    }
+
+    /// Exclusively accesses the frozen data inside of the scope, allowing for mutation of the data.
+    ///
+    /// The frozen data is not modified between two calls of this methods that are not separated by [`Self::advance`].
+    pub fn get_mut<'borrow, Output, G>(&'borrow mut self, f: G) -> Output
+    where
+        G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
+    {
+        self.0
+            .get_mut_if_open(f)
+            .expect("scope open by construction")
+    }
+
+    /// Advance in the scope until a new value is produced.
+    pub fn advance(&mut self) {
+        self.0.advance()
+    }
+
+    /// Advances in the scope until a new value is produced, and provide exclusive access to it.
+    ///
+    /// This method combines [`Self::advance`] and [`Self::get_mut`].
+    #[doc(alias = "enter")]
+    pub fn next<'borrow, Output, G>(&'borrow mut self, f: G) -> Output
+    where
+        G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
+    {
+        self.advance();
+        self.get_mut(f)
+    }
+
+    /// Returns an infinite iterator that accesses the successive values inside of the scope through the passed closure.
+    pub fn iter_mut<'borrow, Output, G>(
+        &'borrow mut self,
+        f: G,
+    ) -> IterMut<'borrow, T, F, G, Output>
+    where
+        G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output,
+    {
+        self.0.iter_mut(f)
+    }
+
+    /// Returns an infinite iterator that accesses the successive values inside of the scope through the passed closure.
+    pub fn into_iter<Output, G>(self, f: G) -> IntoIter<T, F, G, Output>
+    where
+        G: for<'a, 'borrow> FnMut(&'borrow mut <T as Family<'a>>::Family) -> Output,
+    {
+        self.0.into_iter(f)
+    }
+
+    /// Erases the information that the scope was opened, returning to a [`BoxScope`].
+    ///
+    /// This method does not reset the frozen data inside of the scope. The scope remains open, but this information
+    /// is lost to the type system.
+    ///
+    /// Use this method is you need to store a `BoxScope`, rather than an [`OpenBoxScope`], in a struct.
+    pub fn into_inner(self) -> BoxScope<T, F> {
+        self.0
     }
 }
 
