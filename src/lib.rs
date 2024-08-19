@@ -23,7 +23,7 @@ pub use raw_scope::{FrozenFuture, TimeCapsule};
 /// [genawaiter](https://lib.rs/crates/genawaiter).
 mod waker;
 
-pub use box_scope::{BoxScope, OpenBoxScope};
+pub use box_scope::{BoxScope, LazyBoxScope};
 pub use scope::Scope;
 pub use scope::TopScope;
 
@@ -67,7 +67,7 @@ mod test {
     use super::*;
     #[test]
     fn produce_output() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let mut scope = LazyBoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -83,7 +83,7 @@ mod test {
 
     #[test]
     fn produce_output_erased() {
-        let mut scope = BoxScope::<SingleFamily<u32>>::new_dyn(scope!({
+        let mut scope = LazyBoxScope::<SingleFamily<u32>>::new_dyn(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -112,7 +112,7 @@ mod test {
     #[cfg(feature = "std")]
     fn panicking_producer() {
         must_panic(|| {
-            BoxScope::<SingleFamily<u32>, _>::new(unsafe {
+            LazyBoxScope::<SingleFamily<u32>, _>::new(unsafe {
                 crate::scope::new_scope(|_time_capsule| {
                     panic!("panicking producer");
                     #[allow(unreachable_code)]
@@ -127,7 +127,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn panicking_future() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({ panic!() }));
+        let mut scope = LazyBoxScope::<SingleFamily<u32>, _>::new(scope!({ panic!() }));
 
         must_panic(|| scope.enter(|x| println!("{x}")));
         must_panic(|| scope.enter(|x| println!("{x}")));
@@ -136,7 +136,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn panicking_future_after_once() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let mut scope = LazyBoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             freeze!(&mut x);
             panic!()
@@ -151,7 +151,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn panicking_enter() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let mut scope = LazyBoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -177,14 +177,14 @@ mod test {
             scope!({ freeze_forever!(&mut s.len()) })
         }
         let x = "Intel the Beagle".to_string();
-        let mut scope = BoxScope::<SingleFamily<usize>, _>::new(scope_with_ref(&x));
+        let mut scope = LazyBoxScope::<SingleFamily<usize>, _>::new(scope_with_ref(&x));
 
         scope.enter(|x| assert_eq!(*x, 16));
     }
 
     #[test]
     fn awaiting_in_scope_ready() {
-        let mut scope = BoxScope::<SingleFamily<u32>>::new_dyn(scope!({
+        let mut scope = LazyBoxScope::<SingleFamily<u32>>::new_dyn(scope!({
             freeze!(&mut 40);
             core::future::ready(()).await;
             freeze_forever!(&mut 42)
@@ -197,7 +197,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn awaiting_in_scope_panics() {
-        let mut scope = BoxScope::<SingleFamily<u32>>::new_dyn(scope!({
+        let mut scope = LazyBoxScope::<SingleFamily<u32>>::new_dyn(scope!({
             freeze!(&mut 40);
             let () = core::future::pending().await;
             freeze_forever!(&mut 42)
@@ -211,7 +211,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn send_in_thread() {
-        let mut scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let mut scope = LazyBoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -233,7 +233,7 @@ mod test {
     #[test]
     #[cfg(feature = "std")]
     fn sync_in_thread() {
-        let scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let scope = LazyBoxScope::<SingleFamily<u32>, _>::new(scope!({
             let mut x = 0u32;
             loop {
                 freeze!(&mut x);
@@ -253,9 +253,10 @@ mod test {
     fn non_sync_family_in_thread() {
         let rc = std::rc::Rc::new(42);
         let mut rc_clone = rc.clone();
-        let scope: BoxScope<_, _> = BoxScope::<SingleFamily<std::rc::Rc<u32>>, _>::new(scope!({
-            freeze_forever!(&mut rc_clone)
-        }));
+        let scope: LazyBoxScope<_, _> =
+            LazyBoxScope::<SingleFamily<std::rc::Rc<u32>>, _>::new(scope!({
+                freeze_forever!(&mut rc_clone)
+            }));
 
         let scope_ref = &scope;
 
@@ -269,7 +270,7 @@ mod test {
     fn non_sync_fut_in_thread() {
         let rc = std::rc::Rc::new(42);
         let rc_cloned = rc.clone();
-        let scope = BoxScope::<SingleFamily<u32>, _>::new(scope!({
+        let scope = LazyBoxScope::<SingleFamily<u32>, _>::new(scope!({
             loop {
                 let rc = rc_cloned.clone();
                 let mut rc_ref = *rc;
