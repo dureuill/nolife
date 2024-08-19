@@ -34,44 +34,6 @@ where
     T: for<'a> Family<'a>,
     F: Future<Output = Never>;
 
-pub struct IterMut<'borrow, T, F, G, Output>(&'borrow mut BoxScope<T, F>, G)
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never> + ?Sized,
-    G: for<'a> FnMut(&'borrow mut <T as Family<'a>>::Family) -> Output;
-
-impl<'borrow, T, F, G, Output> Iterator for IterMut<'borrow, T, F, G, Output>
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never> + ?Sized,
-    G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output,
-{
-    type Item = Output;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.enter(&mut self.1))
-    }
-}
-
-pub struct IntoIter<T, F, G, Output>(BoxScope<T, F>, G)
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never> + ?Sized,
-    G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output;
-
-impl<T, F, G, Output> Iterator for IntoIter<T, F, G, Output>
-where
-    T: for<'a> Family<'a>,
-    F: Future<Output = Never> + ?Sized,
-    G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output,
-{
-    type Item = Output;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.enter(&mut self.1))
-    }
-}
-
 impl<T, F: ?Sized> Drop for BoxScope<T, F>
 where
     T: for<'a> Family<'a>,
@@ -272,31 +234,6 @@ where
         unsafe { RawScope::get_mut(self.0, f) }
     }
 
-    /// Returns an infinite iterator that accesses the successive values inside of the scope through the passed closure.
-    pub fn iter_mut<'borrow, Output, G>(
-        &'borrow mut self,
-        f: G,
-    ) -> IterMut<'borrow, T, F, G, Output>
-    where
-        G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output,
-    {
-        if !self.is_open() {
-            self.advance();
-        }
-        IterMut(self, f)
-    }
-
-    /// Returns an infinite iterator that accesses the successive values inside of the scope through the passed closure.
-    pub fn into_iter<Output, G>(mut self, f: G) -> IntoIter<T, F, G, Output>
-    where
-        G: for<'a, 'borrow> FnMut(&'borrow mut <T as Family<'a>>::Family) -> Output,
-    {
-        if !self.is_open() {
-            self.advance();
-        }
-        IntoIter(self, f)
-    }
-
     /// Advances in the scope until a new value is produced.
     pub fn advance(&mut self) {
         unsafe { RawScope::advance(self.0) }
@@ -349,25 +286,6 @@ where
     {
         self.advance();
         self.get_mut(f)
-    }
-
-    /// Returns an infinite iterator that accesses the successive values inside of the scope through the passed closure.
-    pub fn iter_mut<'borrow, Output, G>(
-        &'borrow mut self,
-        f: G,
-    ) -> IterMut<'borrow, T, F, G, Output>
-    where
-        G: for<'a, 'b> FnMut(&'b mut <T as Family<'a>>::Family) -> Output,
-    {
-        self.0.iter_mut(f)
-    }
-
-    /// Returns an infinite iterator that accesses the successive values inside of the scope through the passed closure.
-    pub fn into_iter<Output, G>(self, f: G) -> IntoIter<T, F, G, Output>
-    where
-        G: for<'a, 'borrow> FnMut(&'borrow mut <T as Family<'a>>::Family) -> Output,
-    {
-        self.0.into_iter(f)
     }
 
     /// Erases the information that the scope was opened, returning to a [`BoxScope`].
