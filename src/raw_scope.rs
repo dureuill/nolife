@@ -224,7 +224,7 @@ where
     /// 1. `this` points to a properly aligned, fully initialized `RawScope<T, F>`.
     /// 2. `this` verifies the guarantees of `Pin` (one of its fields is pinned in this function)
     /// 3. No other exclusive reference to the frozen value. In particular, no concurrent calls to this function.
-    pub(crate) unsafe fn advance<'borrow>(this: NonNull<Self>) {
+    pub(crate) unsafe fn advance(this: NonNull<Self>) {
         // SAFETY: precondition (1)
         let RawScopeFields { state, active_fut } = unsafe { Self::fields(this.as_ptr()) };
 

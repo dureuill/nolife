@@ -213,6 +213,10 @@ where
     /// However, it requires that the underlying data and future be `Sync`.
     ///
     /// If the scope is closed, then `f` will not be executed and `None` will be returned.
+    ///
+    /// # Panics
+    ///
+    /// - If the passed function panics.
     pub fn get_if_open<'borrow, Output, G>(&'borrow self, f: G) -> Option<Output>
     where
         G: for<'a> FnOnce(&'borrow <T as Family<'a>>::Family) -> Output,
@@ -227,6 +231,10 @@ where
     /// The frozen data is not modified between two calls of this methods that are not separated by [`Self::advance`].
     ///
     /// If the scope is closed, then `f` will not be executed and `None` will be returned.
+    ///
+    /// # Panics
+    ///
+    /// - If the passed function panics.
     pub fn get_mut_if_open<'borrow, Output, G>(&'borrow mut self, f: G) -> Option<Output>
     where
         G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
@@ -235,6 +243,11 @@ where
     }
 
     /// Advances in the scope until a new value is produced.
+    ///
+    /// # Panics
+    ///
+    /// - If the underlying future panics.
+    /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
     pub fn advance(&mut self) {
         unsafe { RawScope::advance(self.0) }
     }
@@ -250,6 +263,10 @@ where
     /// This method can be called multiple times without modifying the frozen data.
     ///
     /// However, it requires that the underlying data and future be `Sync`.
+    ///
+    /// # Panics
+    ///
+    /// - If the passed function panics.
     pub fn get<'borrow, Output, G>(&'borrow self, f: G) -> Output
     where
         G: for<'a> FnOnce(&'borrow <T as Family<'a>>::Family) -> Output,
@@ -262,6 +279,10 @@ where
     /// Exclusively accesses the frozen data inside of the scope, allowing for mutation of the data.
     ///
     /// The frozen data is not modified between two calls of this methods that are not separated by [`Self::advance`].
+    ///
+    /// # Panics
+    ///
+    /// - If the passed function panics.
     pub fn get_mut<'borrow, Output, G>(&'borrow mut self, f: G) -> Output
     where
         G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
@@ -271,7 +292,12 @@ where
             .expect("scope open by construction")
     }
 
-    /// Advance in the scope until a new value is produced.
+    /// Advances in the scope until a new value is produced.
+    ///
+    /// # Panics
+    ///
+    /// - If the underlying future panics.
+    /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
     pub fn advance(&mut self) {
         self.0.advance()
     }
@@ -279,6 +305,12 @@ where
     /// Advances in the scope until a new value is produced, and provide exclusive access to it.
     ///
     /// This method combines [`Self::advance`] and [`Self::get_mut`].
+    ///
+    /// # Panics
+    ///
+    /// - If the passed function panics.
+    /// - If the underlying future panics.
+    /// - If the underlying future awaits for a future other than the [`crate::FrozenFuture`].
     #[doc(alias = "enter")]
     pub fn next<'borrow, Output, G>(&'borrow mut self, f: G) -> Output
     where
