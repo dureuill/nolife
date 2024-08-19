@@ -224,11 +224,7 @@ where
     /// 1. `this` points to a properly aligned, fully initialized `RawScope<T, F>`.
     /// 2. `this` verifies the guarantees of `Pin` (one of its fields is pinned in this function)
     /// 3. No other exclusive reference to the frozen value. In particular, no concurrent calls to this function.
-    #[allow(unused_unsafe)]
-    pub(crate) unsafe fn enter<'borrow, Output, G>(this: NonNull<Self>, f: G) -> Output
-    where
-        G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
-    {
+    pub(crate) unsafe fn advance<'borrow>(this: NonNull<Self>) {
         // SAFETY: precondition (1)
         let RawScopeFields { state, active_fut } = unsafe { Self::fields(this.as_ptr()) };
 
@@ -246,14 +242,72 @@ where
         // - aliasing: precondition (3) + `mut_ref` cannot escape this function via `f`
         // - lifetime: the value is still live due to the precondition on `Scope::run`,
         //   preventing <https://github.com/dureuill/nolife/issues/8>
-        let mut_ref = unsafe {
+        unsafe {
             state
                 .read()
-                .expect("The scope's future did not fill the value")
-                .as_mut()
-        };
+                .expect("The scope's future did not fill the value");
+        }
+    }
 
-        f(mut_ref)
+    pub(crate) unsafe fn is_open(this: NonNull<Self>) -> bool {
+        let RawScopeFields {
+            state,
+            active_fut: _,
+        } = unsafe { Self::fields(this.as_ptr()) };
+
+        !state.is_null()
+    }
+
+    /// # Safety
+    ///
+    /// 1. `this` points to a properly aligned, fully initialized `RawScope<T, F>`.
+    /// 2. `this` verifies the guarantees of `Pin` (one of its fields is pinned in this function)
+    /// 3. No other exclusive reference to the frozen value. In particular, no concurrent calls to this function.
+    pub(crate) unsafe fn get_mut<'borrow, Output, G>(this: NonNull<Self>, f: G) -> Option<Output>
+    where
+        G: for<'a> FnOnce(&'borrow mut <T as Family<'a>>::Family) -> Output,
+    {
+        // SAFETY: precondition (1)
+        let RawScopeFields {
+            state,
+            active_fut: _,
+        } = unsafe { Self::fields(this.as_ptr()) };
+
+        // SAFETY:
+        // - dereferenceable: precondition (1)
+        // - drop: reading a reference (no drop glue)
+        // - aliasing: precondition (3) + `mut_ref` cannot escape this function via `f`
+        // - lifetime: the value is still live due to the precondition on `Scope::run`,
+        //   preventing <https://github.com/dureuill/nolife/issues/8>
+        let mut_ref = unsafe { state.read()?.as_mut() };
+
+        Some(f(mut_ref))
+    }
+
+    /// # Safety
+    ///
+    /// 1. `this` points to a properly aligned, fully initialized `RawScope<T, F>`.
+    /// 2. `this` verifies the guarantees of `Pin` (one of its fields is pinned in this function)
+    /// 3. No exclusive reference to the frozen value. In particular, no concurrent calls to [`Self::get`].
+    pub(crate) unsafe fn get<'borrow, Output, G>(this: NonNull<Self>, f: G) -> Option<Output>
+    where
+        G: for<'a> FnOnce(&'borrow <T as Family<'a>>::Family) -> Output,
+    {
+        // SAFETY: precondition (1)
+        let RawScopeFields {
+            state,
+            active_fut: _,
+        } = unsafe { Self::fields(this.as_ptr()) };
+
+        // SAFETY:
+        // - dereferenceable: precondition (1)
+        // - drop: reading a reference (no drop glue)
+        // - aliasing: precondition (3) + `mut_ref` cannot escape this function via `f`
+        // - lifetime: the value is still live due to the precondition on `Scope::run`,
+        //   preventing <https://github.com/dureuill/nolife/issues/8>
+        let shared_ref = unsafe { state.read()?.as_ref() };
+
+        Some(f(shared_ref))
     }
 }
 
